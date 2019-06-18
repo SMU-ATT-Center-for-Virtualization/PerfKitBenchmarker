@@ -361,13 +361,25 @@ class DockerVirtualMachine(virtual_machine.BaseVirtualMachine):
     vm_util.IssueCommand(build_cmd)
 
 
-class DebianBasedDockerVirtualMachine(DockerVirtualMachine,
-                                          linux_virtual_machine.DebianMixin):
+class DebianBasedDockerContainer(DockerContainer,
+                                      linux_virtual_machine.DebianMixin):
   DEFAULT_IMAGE = UBUNTU_IMAGE
 
-# class Ubuntu1404BasedDockerVirtualMachine(
-#     DebianBasedDockerVirtualMachine, linux_virtual_machine.Ubuntu1404Mixin):
-#   DEFAULT_IMAGE = 'ubuntu:14.04'
+  def ApplySysctlPersistent(self, sysctl_params):
+    """
+    Override ApplySysctlPeristent function for Docker provider
+
+    Parent function causes errors with Docker because it shutdowns container
+    Args:
+      sysctl_params: dict - the keys and values to write
+    """
+    logging.warn("sysctl flags are applied when container is created. "
+                 "Not all sysctl flags work with Docker. It does not "
+                 "support flags that modify the host system")
+
+  def _RebootIfNecessary(self):
+    """Will reboot the VM if self._needs_reboot has been set."""
+    logging.warn("Docker Containers cannot be rebooted to apply flags")
 
 class Ubuntu1604BasedDockerVirtualMachine(
     DebianBasedDockerVirtualMachine, linux_virtual_machine.Ubuntu1604Mixin):
