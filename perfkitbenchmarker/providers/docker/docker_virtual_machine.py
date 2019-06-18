@@ -361,7 +361,7 @@ class DockerVirtualMachine(virtual_machine.BaseVirtualMachine):
     vm_util.IssueCommand(build_cmd)
 
 
-class DebianBasedDockerContainer(DockerContainer,
+class DebianBasedDockerVirtualMachine(DockerVirtualMachine,
                                       linux_virtual_machine.DebianMixin):
   DEFAULT_IMAGE = UBUNTU_IMAGE
 
