@@ -949,20 +949,20 @@ class AwsEndpointGroup(resource.BaseResource):
     return
 
   def _Update(self, endpoint, weight=128):
-    """Creates the internet gateway."""
+    """Update the endpoint group."""
     if not self.idempotency_token:
       self.idempotency_token = ''.join(
         random.choice(string.ascii_lowercase + 
                       string.ascii_uppercase +  
                       string.digits) for i in range(50))
 
-    create_cmd = util.AWS_PREFIX + [
+    update_cmd = util.AWS_PREFIX + [
         'globalaccelerator',
         'update-endpoint-group',
         '--region', self.region,
         '--endpoint-configurations',
         'EndpointId=%s,Weight=%s' % (endpoint, str(weight))]
-    vm_util.IssueCommand(create_cmd)
+    vm_util.IssueCommand(update_cmd)
     #util.AddDefaultTags(self.id, self.region)
 
   def _Delete(self):
