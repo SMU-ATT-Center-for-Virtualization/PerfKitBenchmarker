@@ -78,6 +78,10 @@ def Prepare(benchmark_spec):  # pylint: disable=unused-argument
   netperf_benchmark.Prepare(benchmark_spec)
   iperf_benchmark.Prepare(benchmark_spec)
 
+  # vms = benchmark_spec.vms
+  # for vm in vms:
+  #   vm.AllowPort(10,60000)
+
 def Run(benchmark_spec):
   """Run ping on the target vm.
 
@@ -102,8 +106,8 @@ def Run(benchmark_spec):
       print(type(sample))
       print(sample)
       sample.metadata['benchmark_name'] = 'nping'
-      if FLAGS.gcp_network_tier:
-        sample.metadata['network_tier'] = FLAGS.gcp_network_tier
+      # if FLAGS.gcp_network_tier:
+      #   sample.metadata['network_tier'] = FLAGS.gcp_network_tier
 
   else:
     ping_results = ping_benchmark.Run(benchmark_spec)
