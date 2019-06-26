@@ -129,6 +129,19 @@ flags.DEFINE_bool(
 flags.DEFINE_integer(
     'ssh_retries', 10, 'Default number of times to retry SSH.', lower_bound=0)
 
+flags.DEFINE_boolean(
+    'ssh_via_internal_ip', False,
+    'Whether to use internal IP addresses for running commands on and pushing '
+    'data to VMs. By default, PKB interacts with VMs using external IP '
+    'addresses.'
+)
+
+flags.DEFINE_string(
+    'append_kernel_command_line', None,
+    'String to append to the kernel command line. The presence of any '
+    'non-empty string will cause a reboot to occur after VM prepare. '
+    'If unspecified, the kernel command line will be unmodified.')
+
 
 class BaseLinuxMixin(virtual_machine.BaseOsMixin):
   """Class that holds Linux related VM methods and attributes."""
@@ -301,7 +314,9 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       self.InstallPackages('python')
     self.SetFiles()
     self.DoSysctls()
+    self._DoAppendKernelCommandLine()
     self.DoConfigureNetworkForBBR()
+    self.UpdateEnvironmentPath()
     self._RebootIfNecessary()
     self._DisableCpus()
     self.RecordAdditionalMetadata()
@@ -345,6 +360,10 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       self.RemoteCommand('sudo bash -c '
                          '"echo 0 > /sys/devices/system/cpu/cpu%s/online"' %
                          x)
+
+  def UpdateEnvironmentPath(self):
+    """Specific Linux flavors should override this."""
+    pass
 
   def FillDisk(self):
     """Fills the primary scratch disk with a zeros file."""
@@ -454,6 +473,12 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       stdout, _ = self.RemoteCommand('uname -r')
       return stdout.strip()
 
+  @property
+  def kernel_command_line(self):
+    """Return the kernel command line."""
+    return (self.os_metadata.get('kernel_command_line') or
+            self.RemoteCommand('cat /proc/cmdline')[0].strip())
+
   @vm_util.Retry(log_errors=False, poll_interval=1)
   def WaitForBootCompletion(self):
     """Waits until VM is has booted."""
@@ -471,6 +496,8 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     self.numa_node_count = lscpu_results.numa_node_count
     self.os_metadata['os_info'] = self.os_info
     self.os_metadata['kernel_release'] = self.kernel_release
+    if FLAGS.append_kernel_command_line:
+      self.os_metadata['kernel_command_line'] = self.kernel_command_line
 
   @vm_util.Retry(log_errors=False, poll_interval=1)
   def VMLastBootTime(self):
@@ -589,7 +616,8 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
         file_path = file_path.split(':', 1)[1]
       # Replace the last instance of '\' with '/' to make scp happy.
       file_path = '/'.join(file_path.rsplit('\\', 1))
-    remote_ip = '[%s]' % self.ip_address if FLAGS.use_ipv6 else self.ip_address
+    remote_ip = '[%s]' % (
+        self.internal_ip if FLAGS.ssh_via_internal_ip else self.ip_address)
     remote_location = '%s@%s:%s' % (
         self.user_name, remote_ip, remote_path)
     scp_cmd = ['scp', '-P', str(self.ssh_port), '-pr']
@@ -681,8 +709,9 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       # Multi-line commands passed to ssh won't work on Windows unless the
       # newlines are escaped.
       command = command.replace('\n', '\\n')
-
-    user_host = '%s@%s' % (self.user_name, self.ip_address)
+    ip_address = (
+        self.internal_ip if FLAGS.ssh_via_internal_ip else self.ip_address)
+    user_host = '%s@%s' % (self.user_name, ip_address)
     ssh_cmd = ['ssh', '-A', '-p', str(self.ssh_port), user_host]
     ssh_cmd.extend(vm_util.GetSshOptions(self.ssh_private_key))
     try:
@@ -1019,6 +1048,31 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       raise errors.Resource.CreationError('No SMB Service created')
     return smb
 
+  def AppendKernelCommandLine(self, command_line, reboot=True):
+    """Appends the provided command-line to the VM and reboots by default.
+
+    This method should be overwritten by the desired Linux flavor to be useful.
+    Most (all?) Linux flavors modify the kernel command line by updating the
+    GRUB configuration files and rebooting.
+
+    Args:
+      command_line: The string to append to the kernel command line.
+      reboot: Whether or not to reboot to have the change take effect.
+    """
+    raise NotImplementedError(
+        'Kernel command-line appending for given Linux flavor not implemented.')
+
+  def _DoAppendKernelCommandLine(self):
+    """If the flag is set, attempts to append the provided kernel command line.
+
+    In addition, to consolidate reboots during VM prepare, this method sets the
+    needs reboot bit instead of immediately rebooting.
+    """
+    if FLAGS.append_kernel_command_line:
+      self.AppendKernelCommandLine(
+          FLAGS.append_kernel_command_line, reboot=False)
+      self._needs_reboot = True
+
 
 class RhelMixin(BaseLinuxMixin):
   """Class holding RHEL specific VM methods and attributes."""
@@ -1136,6 +1190,21 @@ class RhelMixin(BaseLinuxMixin):
     if FLAGS.http_proxy:
       self.RemoteCommand("echo -e 'proxy= %s' | sudo tee -a %s" % (
           FLAGS.http_proxy, yum_proxy_file))
+
+  def AppendKernelCommandLine(self, command_line, reboot=True):
+    """Appends the provided command-line to the VM and reboots by default."""
+    self.RemoteCommand(
+        r'echo GRUB_CMDLINE_LINUX_DEFAULT=\"\${GRUB_CMDLINE_LINUX_DEFAULT} %s\"'
+        ' | sudo tee -a /etc/default/grub' % command_line)
+    self.RemoteCommand('sudo grub2-mkconfig -o /boot/grub2/grub.cfg')
+    self.RemoteCommand('sudo grub2-mkconfig -o /etc/grub2.cfg')
+    if reboot:
+      self.Reboot()
+
+
+class AmazonLinux2Mixin(RhelMixin):
+  """Class holding Amazon Linux2 vm methods and attributes."""
+  OS_TYPE = os_types.AMAZONLINUX2
 
 
 class Centos7Mixin(RhelMixin):
@@ -1288,33 +1357,66 @@ class DebianMixin(BaseLinuxMixin):
                        '/etc/ssh/sshd_config'.format(target))
     self.RemoteCommand('sudo service ssh restart')
 
+  def AppendKernelCommandLine(self, command_line, reboot=True):
+    """Appends the provided command-line to the VM and reboots by default."""
+    self.RemoteCommand(
+        r'echo GRUB_CMDLINE_LINUX_DEFAULT=\"\${GRUB_CMDLINE_LINUX_DEFAULT} %s\"'
+        r' | sudo tee -a /etc/default/grub' % command_line)
+    self.RemoteCommand('sudo update-grub')
+    if reboot:
+      self.Reboot()
+
 
 class Debian9Mixin(DebianMixin):
   """Class holding Debian9 specific VM methods and attributes."""
   OS_TYPE = os_types.DEBIAN9
 
 
-class Ubuntu1404Mixin(DebianMixin):
+class UbuntuMixin(DebianMixin):
+  """Class holding Ubuntu specific VM methods and attributes."""
+
+  def AppendKernelCommandLine(self, command_line, reboot=True):
+    """Appends the provided command-line to the VM and reboots by default."""
+    self.RemoteCommand(
+        r'echo GRUB_CMDLINE_LINUX_DEFAULT=\"\${GRUB_CMDLINE_LINUX_DEFAULT} %s\"'
+        r' | sudo tee -a /etc/default/grub.d/50-cloudimg-settings.cfg' %
+        command_line)
+    self.RemoteCommand('sudo update-grub')
+    if reboot:
+      self.Reboot()
+
+
+class Ubuntu1404Mixin(UbuntuMixin):
   """Class holding Ubuntu1404 specific VM methods and attributes."""
   OS_TYPE = os_types.UBUNTU1404
 
 
-class Ubuntu1604Mixin(DebianMixin):
+class Ubuntu1604Mixin(UbuntuMixin):
   """Class holding Ubuntu1604 specific VM methods and attributes."""
   OS_TYPE = os_types.UBUNTU1604
 
 
-class Ubuntu1710Mixin(DebianMixin):
+class Ubuntu1710Mixin(UbuntuMixin):
   """Class holding Ubuntu1710 specific VM methods and attributes."""
   OS_TYPE = os_types.UBUNTU1710
 
 
-class Ubuntu1804Mixin(DebianMixin):
+class Ubuntu1804Mixin(UbuntuMixin):
   """Class holding Ubuntu1804 specific VM methods and attributes."""
   OS_TYPE = os_types.UBUNTU1804
 
+  def UpdateEnvironmentPath(self):
+    """Add /snap/bin to default search path for Ubuntu1804.
 
-class Ubuntu1604Cuda9Mixin(DebianMixin):
+    See https://bugs.launchpad.net/snappy/+bug/1659719.
+    """
+    self.RemoteCommand(
+        r'sudo sed -i "1 i\export PATH=$PATH:/snap/bin" ~/.bashrc')
+    self.RemoteCommand(
+        r'sudo sed -i "1 i\export PATH=$PATH:/snap/bin" /etc/bash.bashrc')
+
+
+class Ubuntu1604Cuda9Mixin(UbuntuMixin):
   """Class holding NVIDIA CUDA specific VM methods and attributes."""
   OS_TYPE = os_types.UBUNTU1604_CUDA9
 

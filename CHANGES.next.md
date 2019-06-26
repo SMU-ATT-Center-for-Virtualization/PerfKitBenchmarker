@@ -107,6 +107,14 @@
 - Added support for measuring VM reboot time to the cluster boot benchmark.
 - Added Cygwin support to WindowsVirtualMachine and enabled a Windows+Cygwin
   version of Coremark.
+- Added sar trace utility to measure cpu steal time.
+- Added ssh_via_internal_ip flag to use internal IP addresses when ssh'ing to
+  runner VMs, will use external IP addrs if not set.
+- Added support for launching GCP VM with shielded VM secure boot
+- Added Amazon Linux 2 os type. `--os_type=amazonlinux2`
+- Redis enterprise benchmark.
+- Added flag `--append_kernel_command_line`, which allows appending to the
+  kernel command line when using Linux os types.
 - Added ability to specify netperf `tcp_rr` and `udp_rr` test lengths in 
   transactions with `netperf_rr_test_length` flag
 
@@ -286,7 +294,17 @@
 - Added `--before_cleanup_pause` to ease debugging.
 - Added support for CUDA 10.1.
 - Added `--skip_firewall_rules` flag to help manage firewall rule economy.
+- Added Azure Premium Files support.
 - Added 'os_type' metadata to virtual machines for use in performance samples.
+- Storage specification related dpb terasort benchmark improvements.
+- Added an optional flag to set a delay between boot tasks.
+- Added precision flag to Horovod.
+- Added a flag to Horovod that indicates that the VM is using a deep learning
+  image.
+- Add support to set load upper bound for specsfs2014.
+- Add support for different workload sizes for stress-ng.
+- Implemented RobustRemoteCommand for Windows.
+- Extract GceVirtualMachine's GetNetwork into a method.
 
 ### Bug fixes and maintenance updates:
 - Moved GPU-related specs from GceVmSpec to BaseVmSpec
@@ -462,3 +480,14 @@
 - Added flag support to Coremark for choosing a parallelism method. Defaults to
   the existing mechanism of pthreads.
 - Make a temporary copy on VM's disk for scp on SMB.
+- Change the GCE Windows VM boot disk type to PD-STANDARD by default to better
+  match the default for GCE Linux VMs.
+- Fixed azure credentials package to avoid pushing the entire .azure directory.
+- Update bigtable benchmark to make configurations configurable, and report them.
+- RobustRemoteCommand now retries on ssh connections refused.
+- Fixed a bug that was causing AWS capacity reservation creation to fail.
+- GceNetworkSpec's zone is equal to the VM's zone
+- Creates the bucket from PKB rather than from within the VM that PKB launches
+  in TPU test.
+- Sets TPU zone MLPerf benchmark.
+
