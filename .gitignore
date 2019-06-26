@@ -1,3 +1,5 @@
+/.vscode
+/env
 /build
 /perfkitbenchmarker/data/coremark*.tgz
 /perfkitbenchmarker/data/cpu2006*.tgz
