@@ -66,8 +66,15 @@ flags.DEFINE_integer('netperf_thinktime_array_size', 0,
 flags.DEFINE_integer('netperf_thinktime_run_length', 0,
                      'The number of contiguous numbers to sum at a time in the '
                      'thinktime array.')
+flags.DEFINE_integer('netperf_udp_stream_send_size_in_bytes', 1024,
+                     'The number of contiguous numbers to sum at a time in the '
+                     'thinktime array.')
+flags.DEFINE_integer('netperf_tcp_stream_send_size_in_bytes', 131072,
+                     'The number of contiguous numbers to sum at a time in the '
+                     'thinktime array.')
 
-ALL_BENCHMARKS = ['TCP_RR', 'TCP_CRR', 'TCP_STREAM', 'UDP_RR']
+
+ALL_BENCHMARKS = ['TCP_RR', 'TCP_CRR', 'TCP_STREAM', 'UDP_RR', 'UDP_STREAM']
 flags.DEFINE_list('netperf_benchmarks', ALL_BENCHMARKS,
                   'The netperf benchmark(s) to run.')
 flags.register_validator(
@@ -389,6 +396,54 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
                 'netperf_test_length_unit': 'transactions',
                 'max_iter': FLAGS.netperf_max_iter or 1,
                 'sending_thread_count': num_streams}
+
+  elif benchmark_name.upper() == 'UDP_STREAM':
+    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
+                   '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
+                   ' -- '
+                   '-P ,{{data_port}} '
+                   '-R 1 '
+                   '-m {send_size} '
+                   '-o {output_selector}').format(
+                       netperf_path=netperf.NETPERF_PATH,
+                       benchmark_name=benchmark_name,
+                       server_ip=server_ip,
+                       length=FLAGS.netperf_test_length,
+                       output_selector=OUTPUT_SELECTOR,
+                       confidence=confidence, 
+                       verbosity=verbosity,
+                       send_size = FLAGS.netperf_udp_stream_send_size_in_bytes)
+
+    metadata = {'netperf_test_length': FLAGS.netperf_test_length,
+                'netperf_send_size_in_bytes' : FLAGS.netperf_udp_stream_send_size_in_bytes,
+                'netperf_test_length_unit': 'seconds',
+                'max_iter': FLAGS.netperf_max_iter or 1,
+                'sending_thread_count': num_streams}
+
+
+  elif benchmark_name.upper() == 'TCP_STREAM':
+    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
+                   '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
+                   ' -- '
+                   '-P ,{{data_port}} '
+                   '-R 1 '
+                   '-m {send_size} '
+                   '-o {output_selector}').format(
+                       netperf_path=netperf.NETPERF_PATH,
+                       benchmark_name=benchmark_name,
+                       server_ip=server_ip,
+                       length=FLAGS.netperf_test_length,
+                       output_selector=OUTPUT_SELECTOR,
+                       confidence=confidence, 
+                       verbosity=verbosity,
+                       send_size = FLAGS.netperf_tcp_stream_send_size_in_bytes)
+
+    metadata = {'netperf_test_length': FLAGS.netperf_test_length,
+                'netperf_send_size_in_bytes' : FLAGS.netperf_tcp_stream_send_size_in_bytes,
+                'netperf_test_length_unit': 'seconds',
+                'max_iter': FLAGS.netperf_max_iter or 1,
+                'sending_thread_count': num_streams}
+
 
   else:
     netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
