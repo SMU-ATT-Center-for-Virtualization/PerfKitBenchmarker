@@ -78,9 +78,9 @@ def Prepare(benchmark_spec):  # pylint: disable=unused-argument
   netperf_benchmark.Prepare(benchmark_spec)
   iperf_benchmark.Prepare(benchmark_spec)
 
-  # vms = benchmark_spec.vms
-  # for vm in vms:
-  #   vm.AllowPort(10,60000)
+  vms = benchmark_spec.vms
+  for vm in vms:
+    vm.AllowPort(10,60000)
 
 def Run(benchmark_spec):
   """Run ping on the target vm.
