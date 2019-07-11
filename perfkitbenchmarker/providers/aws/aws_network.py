@@ -67,7 +67,7 @@ class AwsFirewall(network.BaseFirewall):
       start_port: The first local port to open in a range.
       end_port: The last local port to open in a range. If None, only start_port
         will be opened.
-      source_range: List of source CIDRs to allow for this port. If None, all 
+      source_range: List of source CIDRs to allow for this port. If None, all
         sources are allowed. i.e. ['0.0.0.0/0']
     """
     if vm.is_static or vm.network.is_static:
@@ -82,6 +82,7 @@ class AwsFirewall(network.BaseFirewall):
                                end_port=None,
                                source_range=None):
     """Opens a port on the firewall for a security group.
+    
     Args:
       region: The region of the security group
       security_group: The security group in which to open the ports

@@ -730,7 +730,7 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
       self.spot_status_code = 'SpotMaxPriceTooLow'
       self.early_termination = True
       raise errors.Resource.CreationError(stderr)
-    if 'InstanceLimitExceeded' in stderr: 
+    if 'InstanceLimitExceeded' in stderr:
       raise errors.Benchmarks.QuotaFailure(stderr)
     if retcode:
       raise errors.Resource.CreationError(
@@ -821,21 +821,20 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
           instances[0]['StateReason']['Message'])
     return status in INSTANCE_EXISTS_STATUSES
 
-
-  def _GetNvmeBootIndex(self):  
-    if aws_disk.LocalDriveIsNvme(self.machine_type) and \ 
-       aws_disk.EbsDriveIsNvme(self.machine_type):  
-      # identify boot drive 
-      cmd = 'lsblk | grep "part /$" | grep -o "nvme[0-9]*"' 
-      boot_drive = self.RemoteCommand(cmd, ignore_failure=True)[0].strip()  
-      if len(boot_drive) > 0: 
-        # get the boot drive index by dropping the nvme prefix  
-        boot_idx = int(boot_drive[4:])  
-        logging.info("found boot drive at nvme index %d" % boot_idx)  
-        return boot_idx 
-      else: 
-        # boot drive is not nvme  
-        return 0  
+  def _GetNvmeBootIndex(self):
+    if aws_disk.LocalDriveIsNvme(self.machine_type) and \
+       aws_disk.EbsDriveIsNvme(self.machine_type):
+      # identify boot drive
+      cmd = 'lsblk | grep "part /$" | grep -o "nvme[0-9]*"'
+      boot_drive = self.RemoteCommand(cmd, ignore_failure=True)[0].strip()
+      if len(boot_drive) > 0:
+        # get the boot drive index by dropping the nvme prefix
+        boot_idx = int(boot_drive[4:])
+        logging.info("found boot drive at nvme index %d" % boot_idx)
+        return boot_idx
+      else:
+        # boot drive is not nvme
+        return 0
 
   def CreateScratchDisk(self, disk_spec):
     """Create a VM's scratch disk.
@@ -1001,20 +1000,20 @@ class JujuBasedAwsVirtualMachine(AwsVirtualMachine,
   PYTHON_PIP_PACKAGE_VERSION = '9.0.3'
 
 
-class AmazonLinux2BasedAwsVirtualMachine( 
-    AwsVirtualMachine, linux_virtual_machine.AmazonLinux2Mixin):  
-  """Class with configuration for AWS Amazon Linux 2 Redhat virtual machines."""  
-  IMAGE_NAME_FILTER = 'amzn2-ami-*-*-*' 
+class AmazonLinux2BasedAwsVirtualMachine(
+    AwsVirtualMachine, linux_virtual_machine.AmazonLinux2Mixin):
+  """Class with configuration for AWS Amazon Linux 2 Redhat virtual machines."""
+  IMAGE_NAME_FILTER = 'amzn2-ami-*-*-*'
 
-   def __init__(self, vm_spec): 
-    super(AmazonLinux2BasedAwsVirtualMachine, self).__init__(vm_spec) 
-    user_name_set = FLAGS['aws_user_name'].present  
-    self.user_name = FLAGS.aws_user_name if user_name_set else 'ec2-user' 
+   def __init__(self, vm_spec):
+    super(AmazonLinux2BasedAwsVirtualMachine, self).__init__(vm_spec)
+    user_name_set = FLAGS['aws_user_name'].present
+    self.user_name = FLAGS.aws_user_name if user_name_set else 'ec2-user'
 
-     # package_config 
-    self.python_package_config = 'python27' 
-    self.python_dev_package_config = 'python27-devel' 
-    self.python_pip_package_config = 'python27-pip' 
+     # package_config
+    self.python_package_config = 'python27'
+    self.python_dev_package_config = 'python27-devel'
+    self.python_pip_package_config = 'python27-pip'
 
 
 class RhelBasedAwsVirtualMachine(AwsVirtualMachine,
