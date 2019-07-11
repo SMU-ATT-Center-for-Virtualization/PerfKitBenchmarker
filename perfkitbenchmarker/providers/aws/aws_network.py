@@ -59,7 +59,7 @@ class AwsFirewall(network.BaseFirewall):
     self.firewall_set = set()
     self._lock = threading.Lock()
 
-  def AllowPort(self, vm, start_port, end_port=None):
+  def AllowPort(self, vm, start_port, end_port=None, source_range=None):
     """Opens a port on the firewall.
 
     Args:
@@ -67,28 +67,33 @@ class AwsFirewall(network.BaseFirewall):
       start_port: The first local port to open in a range.
       end_port: The last local port to open in a range. If None, only start_port
         will be opened.
+      source_range: List of source CIDRs to allow for this port. If None, all 
+        sources are allowed. i.e. ['0.0.0.0/0']
     """
     if vm.is_static or vm.network.is_static:
       return
-    self.AllowPortInSecurityGroup(vm.region, vm.group_id, start_port, end_port)
+    self.AllowPortInSecurityGroup(vm.region, vm.group_id, start_port, end_port,
+                                  source_range)
 
-  def AllowPortInSecurityGroup(self, region, security_group,
-                               start_port, end_port=None):
+  def AllowPortInSecurityGroup(self,
+                               region,
+                               security_group,
+                               start_port,
+                               end_port=None,
+                               source_range=None):
     """Opens a port on the firewall for a security group.
-
     Args:
       region: The region of the security group
       security_group: The security group in which to open the ports
       start_port: The first local port to open in a range.
       end_port: The last local port to open in a range. If None, only start_port
         will be opened.
+      source_range: List of source CIDRs to allow for this port.
     """
-    if end_port is None:
-      end_port = start_port
-    entry = (start_port, end_port, region, security_group)
-    if entry in self.firewall_set:
-      return
-    with self._lock:
+    end_port = end_port or start_port
+    source_range = source_range or ['0.0.0.0/0']
+    for source in source_range:
+      entry = (start_port, end_port, region, security_group, source)
       if entry in self.firewall_set:
         continue
       if self._RuleExists(region, security_group, start_port, end_port, source):
@@ -675,8 +680,9 @@ class AwsNetwork(network.BaseNetwork):
       self.elastic_ip._Create()
       self.global_accelerator._Create()
       self.global_accelerator.AddListener('TCP', '10', '60000')
-      self.global_accelerator.listeners[-1].AddEndpointGroup(self.region, self.elastic_ip.allocation_id, 128)
-      
+      self.global_accelerator.listeners[-1].AddEndpointGroup(
+                                            self.region,
+                                            self.elastic_ip.allocation_id, 128)
 
   def Delete(self):
     """Deletes the network."""
