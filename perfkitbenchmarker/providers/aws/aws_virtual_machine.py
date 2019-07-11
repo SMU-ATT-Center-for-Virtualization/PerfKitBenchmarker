@@ -1005,12 +1005,12 @@ class AmazonLinux2BasedAwsVirtualMachine(
   """Class with configuration for AWS Amazon Linux 2 Redhat virtual machines."""
   IMAGE_NAME_FILTER = 'amzn2-ami-*-*-*'
 
-   def __init__(self, vm_spec):
+  def __init__(self, vm_spec):
     super(AmazonLinux2BasedAwsVirtualMachine, self).__init__(vm_spec)
     user_name_set = FLAGS['aws_user_name'].present
     self.user_name = FLAGS.aws_user_name if user_name_set else 'ec2-user'
 
-     # package_config
+    # package_config
     self.python_package_config = 'python27'
     self.python_dev_package_config = 'python27-devel'
     self.python_pip_package_config = 'python27-pip'

@@ -82,7 +82,7 @@ class AwsFirewall(network.BaseFirewall):
                                end_port=None,
                                source_range=None):
     """Opens a port on the firewall for a security group.
-    
+
     Args:
       region: The region of the security group
       security_group: The security group in which to open the ports
