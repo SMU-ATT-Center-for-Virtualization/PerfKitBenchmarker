@@ -81,3 +81,5 @@ flags.DEFINE_enum('efs_throughput_mode', 'provisioned',
 flags.DEFINE_float('efs_provisioned_throughput', 1024.0,
                    'The throughput limit of EFS (in MiB/s) when run in '
                    'provisioned mode.')
+flags.DEFINE_boolean('aws_global_accelerator', False,
+                     'Whether to use AWS Global Accelerator for networking')
