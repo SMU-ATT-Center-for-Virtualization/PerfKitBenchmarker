@@ -29,9 +29,12 @@ flags.DEFINE_boolean('nping_also_run_using_external_ip', False,
                      'If set to True, the ping command will also be executed '
                      'using the external ips of the vms.')
 
+flags.DEFINE_integer('nping_port', 3000,
+                     'port to use for nping')
+
 FLAGS = flags.FLAGS
 
-NPING_PORT=3000
+NPING_PORT=20000
 
 BENCHMARK_NAME = 'nping'
 BENCHMARK_CONFIG = """
@@ -111,13 +114,13 @@ def _RunNPing(sending_vm, receiving_vm, receiving_ip, ip_type):
     ip_type: The type of 'receiving_ip' (either 'internal' or 'external')
   Returns:
     A list of samples, with one sample for each metric.
-  """
+  """#
   # if not sending_vm.IsReachable(receiving_vm):
   #   logging.warn('%s is not reachable from %s', receiving_vm, sending_vm)
   #   return []
 
   logging.info('nping results (ip_type = %s):', ip_type)
-  ping_cmd = 'nping -c100 -p 3000 %s' % receiving_ip
+  ping_cmd = 'nping -c100 -p %s %s' % (NPING_PORT, receiving_ip)
 
   stdout, _ = sending_vm.RemoteCommand(ping_cmd, should_log=True)
   stats = re.findall('([0-9]*\\.[0-9]*)', stdout.splitlines()[-3])

@@ -59,6 +59,9 @@ METRICS = ('Min Latency', 'Average Latency', 'Max Latency', 'Latency Std Dev')
 flags.DEFINE_boolean('use_nping', False,
                      'If set to True, nping will be used instead of standard ping')
 
+flags.DEFINE_boolean('do_ping', True,
+                     'If set to True, does ping or nping if that flag is set')
+
 def GetConfig(user_config):
   return configs.LoadConfig(BENCHMARK_CONFIG, user_config, BENCHMARK_NAME)
 
@@ -70,10 +73,12 @@ def Prepare(benchmark_spec):  # pylint: disable=unused-argument
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
   """
-  if FLAGS.use_nping:
-    nping_benchmark.Prepare(benchmark_spec)
-  else:
-    ping_benchmark.Prepare(benchmark_spec)
+
+  if FLAGS.do_ping:
+    if FLAGS.use_nping:
+      nping_benchmark.Prepare(benchmark_spec)
+    else:
+      ping_benchmark.Prepare(benchmark_spec)
 
   netperf_benchmark.Prepare(benchmark_spec)
   iperf_benchmark.Prepare(benchmark_spec)
@@ -98,27 +103,28 @@ def Run(benchmark_spec):
   
   ping_results = []
 
-  if FLAGS.use_nping:
-    ping_results = nping_benchmark.Run(benchmark_spec)
+  if FLAGS.do_ping:
+    if FLAGS.use_nping:
+      ping_results = nping_benchmark.Run(benchmark_spec)
 
-    for sample in ping_results:
-      print("SAMPLE")
-      print(type(sample))
-      print(sample)
-      sample.metadata['benchmark_name'] = 'nping'
-      # if FLAGS.gcp_network_tier:
-      #   sample.metadata['network_tier'] = FLAGS.gcp_network_tier
+      for sample in ping_results:
+        print("SAMPLE")
+        print(type(sample))
+        print(sample)
+        sample.metadata['benchmark_name'] = 'nping'
+        # if FLAGS.gcp_network_tier:
+        #   sample.metadata['network_tier'] = FLAGS.gcp_network_tier
 
-  else:
-    ping_results = ping_benchmark.Run(benchmark_spec)
+    else:
+      ping_results = ping_benchmark.Run(benchmark_spec)
 
-    for sample in ping_results:
-      print("SAMPLE")
-      print(type(sample))
-      print(sample)
-      sample.metadata['benchmark_name'] = 'ping'
-      # if FLAGS.gcp_network_tier:
-      #   sample.metadata['network_tier'] = FLAGS.gcp_network_tier
+      for sample in ping_results:
+        print("SAMPLE")
+        print(type(sample))
+        print(sample)
+        sample.metadata['benchmark_name'] = 'ping'
+        # if FLAGS.gcp_network_tier:
+        #   sample.metadata['network_tier'] = FLAGS.gcp_network_tier
 
   iperf_results = iperf_benchmark.Run(benchmark_spec)
   for sample in iperf_results:
