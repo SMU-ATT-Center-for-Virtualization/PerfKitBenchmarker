@@ -97,6 +97,9 @@ def Run(benchmark_spec):
   Returns:
     A list of sample.Sample objects.
   """
+
+  # name = raw_input("continue? ")
+
   vms = benchmark_spec.vms
 
   results = []
