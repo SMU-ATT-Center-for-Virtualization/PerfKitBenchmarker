@@ -693,7 +693,7 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
       raise errors.Benchmarks.QuotaFailure(stderr)
     if retcode:
       raise errors.Resource.CreationError(
-          '%s return code: %s' % (retcode, stderr))
+          'Failed to create VM: %s return code: %s' % (retcode, stderr))
 
   def _Delete(self):
     """Delete a VM instance."""
@@ -780,6 +780,21 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
           instances[0]['StateReason']['Message'])
     return status in INSTANCE_EXISTS_STATUSES
 
+  def _GetNvmeBootIndex(self):
+    if aws_disk.LocalDriveIsNvme(self.machine_type) and \
+       aws_disk.EbsDriveIsNvme(self.machine_type):
+      # identify boot drive
+      cmd = 'lsblk | grep "part /$" | grep -o "nvme[0-9]*"'
+      boot_drive = self.RemoteCommand(cmd, ignore_failure=True)[0].strip()
+      if len(boot_drive) > 0:
+        # get the boot drive index by dropping the nvme prefix
+        boot_idx = int(boot_drive[4:])
+        logging.info("found boot drive at nvme index %d" % boot_idx)
+        return boot_idx
+      else:
+        # boot drive is not nvme
+        return 0
+
   def CreateScratchDisk(self, disk_spec):
     """Create a VM's scratch disk.
 
@@ -791,14 +806,15 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
     """
     # Instantiate the disk(s) that we want to create.
     disks = []
+    nvme_boot_drive_index = self._GetNvmeBootIndex()
     for _ in range(disk_spec.num_striped_disks):
       if disk_spec.disk_type == disk.NFS:
         data_disk = self._GetNfsService().CreateNfsDisk()
       else:
         data_disk = aws_disk.AwsDisk(disk_spec, self.zone, self.machine_type)
       if disk_spec.disk_type == disk.LOCAL:
-        data_disk.device_letter = chr(ord(DRIVE_START_LETTER) +
-                                      self.local_disk_counter)
+        device_letter = chr(ord(DRIVE_START_LETTER) + self.local_disk_counter)
+        data_disk.AssignDeviceLetter(device_letter, nvme_boot_drive_index)
         # Local disk numbers start at 1 (0 is the system disk).
         data_disk.disk_number = self.local_disk_counter + 1
         self.local_disk_counter += 1
@@ -837,6 +853,13 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
     # TODO(deitz): Add retry logic.
     self.RemoteCommand(GenerateDownloadPreprovisionedDataCommand(
         install_path, module_name, filename))
+
+  def ShouldDownloadPreprovisionedData(self, module_name, filename):
+    """Returns whether or not preprovisioned data is available."""
+    self.Install('aws_credentials')
+    self.Install('awscli')
+    return FLAGS.aws_preprovisioned_data_bucket and self.TryRemoteCommand(
+        GenerateStatPreprovisionedDataCommand(module_name, filename))
 
   def IsInterruptible(self):
     """Returns whether this vm is an interruptible vm (spot vm).
@@ -1083,3 +1106,9 @@ def GenerateDownloadPreprovisionedDataCommand(install_path, module_name,
   return 'aws s3 cp --only-show-errors s3://%s/%s/%s %s' % (
       FLAGS.aws_preprovisioned_data_bucket, module_name, filename,
       posixpath.join(install_path, filename))
+
+
+def GenerateStatPreprovisionedDataCommand(module_name, filename):
+  """Returns a string used to download preprovisioned data."""
+  return 'aws s3api head-object --bucket %s --key %s/%s' % (
+      FLAGS.aws_preprovisioned_data_bucket, module_name, filename)

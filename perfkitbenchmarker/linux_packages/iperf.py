@@ -15,7 +15,7 @@
 
 """Module containing iperf installation and cleanup functions."""
 
-import re
+import posixpath
 
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import vm_util

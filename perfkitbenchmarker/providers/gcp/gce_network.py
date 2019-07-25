@@ -24,6 +24,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import threading
 
 from perfkitbenchmarker import flags
@@ -123,16 +124,19 @@ class GceFirewall(network.BaseFirewall):
       start_port: The first local port to open in a range.
       end_port: The last local port to open in a range. If None, only start_port
         will be opened.
-      source_range: The source ip range to allow for this port.
+      source_range: List of source CIDRs to allow for this port. If none, all
+        sources are allowed.
     """
     if vm.is_static:
       return
+    if source_range:
+      source_range = ','.join(source_range)
     with self._lock:
       if end_port is None:
         end_port = start_port
       firewall_name = ('perfkit-firewall-%s-%d-%d' %
                        (FLAGS.run_uri, start_port, end_port))
-      key = (vm.project, start_port, end_port)
+      key = (vm.project, start_port, end_port, source_range)
       if key in self.firewall_rules:
         return
       allow = ','.join('{0}:{1}-{2}'.format(protocol, start_port, end_port)
@@ -179,6 +183,10 @@ class GceNetworkResource(resource.BaseResource):
 
   def _Delete(self):
     """Deletes the Network resource."""
+    if FLAGS.gce_firewall_rules_clean_all:
+      for firewall_rule in self._GetAllFirewallRules():
+        firewall_rule.Delete()
+
     cmd = util.GcloudCommand(self, 'compute', 'networks', 'delete', self.name)
     cmd.Issue()
 
@@ -187,6 +195,16 @@ class GceNetworkResource(resource.BaseResource):
     cmd = util.GcloudCommand(self, 'compute', 'networks', 'describe', self.name)
     _, _, retcode = cmd.Issue(suppress_warning=True)
     return not retcode
+
+  def _GetAllFirewallRules(self):
+    """Returns all the firewall rules that use the network."""
+    cmd = util.GcloudCommand(self, 'compute', 'firewall-rules', 'list')
+    cmd.flags['filter'] = 'network=%s' % self.name
+
+    stdout, _, _ = cmd.Issue(suppress_warning=True)
+    result = json.loads(stdout)
+    return [GceFirewallRule(entry['name'], self.project, ALLOW_ALL, self.name,
+                            NETWORK_RANGE) for entry in result]
 
 
 class GceSubnetResource(resource.BaseResource):
@@ -210,12 +228,16 @@ class GceSubnetResource(resource.BaseResource):
   def _Exists(self):
     cmd = util.GcloudCommand(self, 'compute', 'networks', 'subnets', 'describe',
                              self.name)
+    if self.region:
+      cmd.flags['region'] = self.region
     _, _, retcode = cmd.Issue(suppress_warning=True)
     return not retcode
 
   def _Delete(self):
     cmd = util.GcloudCommand(self, 'compute', 'networks', 'subnets', 'delete',
                              self.name)
+    if self.region:
+      cmd.flags['region'] = self.region
     cmd.Issue()
 
 
