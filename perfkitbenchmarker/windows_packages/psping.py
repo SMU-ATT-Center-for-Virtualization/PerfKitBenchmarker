@@ -167,8 +167,13 @@ def ParsePspingResults(results, client_vm, server_vm, internal_ip_used):
   Returns:
     list of samples reflecting the psping results
   """
-
+  print("OUTPUT")
+  print results
+  
   output_list = [val.rstrip('\r') for val in results.split('\n')]
+
+  print("OUTPUT LIST")
+  print(output_list)
 
   # There should be exactly one line like this.
   data_line = [line for line in output_list if 'Minimum' in line][0]

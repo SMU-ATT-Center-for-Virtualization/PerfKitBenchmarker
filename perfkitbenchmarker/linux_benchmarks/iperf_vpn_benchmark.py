@@ -11,8 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import copy
 
-"""Runs plain Iperf.
+"""Runs plain Iperf over vpn.
 
 Docs:
 http://iperf.fr/
@@ -24,20 +25,18 @@ import logging
 import re
 
 from perfkitbenchmarker import configs
-from perfkitbenchmarker import flag_util
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
 
-flag_util.DEFINE_integerlist('iperf_sending_thread_count', flag_util.IntegerList([1]),
+flags.DEFINE_integer('iperf_vpn_sending_thread_count', 1,
                      'Number of connections to make to the '
-                     'server for sending traffic. Iperf'
-                     'will run once for each value in the list', 
-                     module_name=__name__)
-flags.DEFINE_integer('iperf_runtime_in_seconds', 60,
+                     'server for sending traffic.',
+                     lower_bound=1)
+flags.DEFINE_integer('iperf_vpn_runtime_in_seconds', 60,
                      'Number of seconds to run iperf.',
                      lower_bound=1)
-flags.DEFINE_integer('iperf_timeout', None,
+flags.DEFINE_integer('iperf_vpn_timeout', None,
                      'Number of seconds to wait in '
                      'addition to iperf runtime before '
                      'killing iperf client command.',
@@ -45,16 +44,47 @@ flags.DEFINE_integer('iperf_timeout', None,
 
 FLAGS = flags.FLAGS
 
-BENCHMARK_NAME = 'iperf'
+BENCHMARK_NAME = 'iperf_vpn'
 BENCHMARK_CONFIG = """
-iperf:
-  description: Run iperf
+# VPN iperf config.
+iperf_vpn:
+  description: Run iperf over vpn 
+  flags:
+    iperf_vpn_sending_thread_count: 1
+    use_vpn: True
+    vpn_service_gateway_count: 1 # gw_count needs to be in global flags so it's available to network setup
+  vpn_service:
+    tunnel_count: 2
+    #gateway_count: 1
+    ike_version: 2
+    routing_type: static
   vm_groups:
     vm_1:
-      vm_spec: *default_single_core
+      cloud: GCP
+      cidr: 10.0.1.0/24
+      #zone: us-west1-b
+      vm_spec: 
+        GCP:
+            zone: us-west1-b
+            machine_type: n1-standard-4
     vm_2:
-      vm_spec: *default_single_core
+      cloud: GCP
+      cidr: 192.168.1.0/24
+      vm_spec:
+        GCP:
+            zone: us-central1-b
+            machine_type: n1-standard-4
 """
+
+# """
+# iperf_vpn:
+#   description: Run iperf through vpn
+#   vm_groups:
+#     vm_1:
+#       vm_spec: *default_single_core
+#     vm_2:
+#       vm_spec: *default_single_core
+# """
 
 IPERF_PORT = 20000
 IPERF_RETRIES = 5
@@ -71,16 +101,6 @@ def Prepare(benchmark_spec):
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
   """
-
-  #check iperf_sending_thread_counts are all > 0
-  #TODO maybe make this a ValueError? like below with the vm stuff
-  for thread_count in FLAGS.iperf_sending_thread_count:
-    if thread_count < 1:
-      logging.error("Flag iperf_sending_thread_count cannot be less than 1")
-      raise ValueError(
-        'Flag iperf sending thread count cannot be less than 1, found {0}'.format(
-          thread_count))
-
   vms = benchmark_spec.vms
   if len(vms) != 2:
     raise ValueError(
@@ -98,7 +118,7 @@ def Prepare(benchmark_spec):
 
 
 @vm_util.Retry(max_retries=IPERF_RETRIES)
-def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_type):
+def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, ip_type):
   """Run iperf using sending 'vm' to connect to 'ip_address'.
 
   Args:
@@ -111,13 +131,13 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   """
   iperf_cmd = ('iperf --client %s --port %s --format m --time %s -P %s' %
                (receiving_ip_address, IPERF_PORT,
-                FLAGS.iperf_runtime_in_seconds,
-                thread_count))
+                FLAGS.iperf_vpn_runtime_in_seconds,
+                FLAGS.iperf_vpn_sending_thread_count))
   # the additional time on top of the iperf runtime is to account for the
   # time it takes for the iperf process to start and exit
-  timeout_buffer = FLAGS.iperf_timeout or 30 + thread_count
+  timeout_buffer = FLAGS.iperf_vpn_timeout or 30 + FLAGS.iperf_vpn_sending_thread_count
   stdout, _ = sending_vm.RemoteCommand(iperf_cmd, should_log=True,
-                                       timeout=FLAGS.iperf_runtime_in_seconds +
+                                       timeout=FLAGS.iperf_vpn_runtime_in_seconds +
                                        timeout_buffer)
 
   # Example output from iperf that needs to be parsed
@@ -143,10 +163,10 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     # below will tend to overestimate a bit.
     thread_values = re.findall('\[.*\d+\].*\s+(\d+\.?\d*).Mbits/sec', stdout)
 
-    if len(thread_values) != thread_count:
+    if len(thread_values) != FLAGS.iperf_vpn_sending_thread_count:
       raise ValueError('Only %s out of %s iperf threads reported a'
                        ' throughput value.' %
-                       (len(thread_values), thread_count))
+                       (len(thread_values), FLAGS.iperf_vpn_sending_thread_count))
 
   total_throughput = 0.0
   for value in thread_values:
@@ -157,7 +177,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       'receiving_machine_type': receiving_vm.machine_type,
       'receiving_zone': receiving_vm.zone,
       'sending_machine_type': sending_vm.machine_type,
-      'sending_thread_count': thread_count,
+      'sending_thread_count': FLAGS.iperf_vpn_sending_thread_count,
       'sending_zone': sending_vm.zone,
       'runtime_in_seconds': FLAGS.iperf_runtime_in_seconds,
       'ip_type': ip_type
@@ -167,7 +187,6 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
 
 def Run(benchmark_spec):
   """Run iperf on the target vm."""
-
   """
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
@@ -176,31 +195,31 @@ def Run(benchmark_spec):
   Returns:
     A list of sample.Sample objects.
   """
+  vpn_metadata = copy.copy(benchmark_spec.vpn_service.GetMetadata())
   vms = benchmark_spec.vms
   results = []
 
   logging.info('Iperf Results:')
 
   # Send traffic in both directions
-  for thread_count in FLAGS.iperf_sending_thread_count:
-    for sending_vm, receiving_vm in vms, reversed(vms):
-      # Send using external IP addresses
-      if vm_util.ShouldRunOnExternalIpAddress():
-        results.append(_RunIperf(sending_vm,
-                                 receiving_vm,
-                                 receiving_vm.ip_address,
-                                 thread_count,
-                                 'external'))
+  for sending_vm, receiving_vm in vms, reversed(vms):
+    # Send using external IP addresses
+    if vm_util.ShouldRunOnExternalIpAddress():
+      results.append(_RunIperf(sending_vm,
+                               receiving_vm,
+                               receiving_vm.ip_address,
+                               'external'))
 
-      # Send using internal IP addresses
-      if vm_util.ShouldRunOnInternalIpAddress(sending_vm,
-                                              receiving_vm):
-        results.append(_RunIperf(sending_vm,
-                                 receiving_vm,
-                                 receiving_vm.internal_ip,
-                                 thread_count,
-                                 'internal'))
+    # Send using internal IP addresses
+    if vm_util.ShouldRunOnInternalIpAddress(sending_vm,
+                                            receiving_vm):
+      results.append(_RunIperf(sending_vm,
+                               receiving_vm,
+                               receiving_vm.internal_ip,
+                               'internal'))
 
+  for r in results:
+    r.metadata.update(vpn_metadata)
   return results
 
 

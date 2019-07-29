@@ -25,6 +25,9 @@ import json
 import logging
 import threading
 import uuid
+import re
+import xmltodict
+
 import random
 import string
 
@@ -57,6 +60,28 @@ class AwsFirewall(network.BaseFirewall):
   def __init__(self):
     self.firewall_set = set()
     self._lock = threading.Lock()
+
+  def AllowIcmp(self, region, security_group, cidr):
+    # aws ec2 authorize-security-group-ingress
+    # aws ec2 authorize-security-group-ingress --group-id sg-05075517a1daed16a --ip-permissions IpProtocol=icmp,FromPort=-1,ToPort=-1,IpRanges=[{CidrIp=0.0.0.0/0}]
+    # --ip-permissions IpProtocol=icmp,FromPort=-1,ToPort=-1,IpRanges=[{CidrIp=0.0.0.0/0}]
+    entry = (-1, -1, region, security_group)
+    if entry in self.firewall_set:
+      return
+    with self._lock:
+      if entry in self.firewall_set:
+        return
+      authorize_cmd = util.AWS_PREFIX + [
+          'ec2',
+          'authorize-security-group-ingress',
+          '--region=%s' % region,
+          '--group-id=%s' % security_group,
+          '--protocol=icmp',
+          '--port=-1',
+          '--cidr=%s' % cidr]
+      util.IssueRetryableCommand(
+          authorize_cmd)
+      self.firewall_set.add(entry)
 
   def AllowPort(self, vm, start_port, end_port=None, source_range=None):
     """Opens a port on the firewall.
@@ -143,7 +168,7 @@ class AwsFirewall(network.BaseFirewall):
 class AwsVpc(resource.BaseResource):
   """An object representing an Aws VPC."""
 
-  def __init__(self, region, vpc_id=None):
+  def __init__(self, region, vpc_id=None, cidr_block='10.0.0.0/16'):
     super(AwsVpc, self).__init__(vpc_id is not None)
     self.region = region
     self.id = vpc_id
@@ -156,13 +181,15 @@ class AwsVpc(resource.BaseResource):
     if self.id:
       self._SetSecurityGroupId()
 
+    self.cidr_block = cidr_block
+
   def _Create(self):
     """Creates the VPC."""
     create_cmd = util.AWS_PREFIX + [
         'ec2',
         'create-vpc',
         '--region=%s' % self.region,
-        '--cidr-block=10.0.0.0/16']
+        '--cidr-block=%s' % self.cidr_block]
     stdout, _, _ = vm_util.IssueCommand(create_cmd)
     response = json.loads(stdout)
     self.id = response['Vpc']['VpcId']
@@ -525,10 +552,10 @@ class _AwsRegionalNetwork(network.BaseNetwork):
   def __repr__(self):
     return '%s(%r)' % (self.__class__, self.__dict__)
 
-  def __init__(self, region, vpc_id=None):
+  def __init__(self, region, vpc_id=None, cidr_block='10.0.0.0/16'):
     self.region = region
-    self.vpc = AwsVpc(self.region, vpc_id)
-    self.internet_gateway = AwsInternetGateway(region, vpc_id)
+    self.vpc = AwsVpc(self.region, vpc_id, cidr_block)
+    self.internet_gateway = AwsInternetGateway(region)
     self.route_table = None
     self.created = False
 
@@ -543,7 +570,7 @@ class _AwsRegionalNetwork(network.BaseNetwork):
     self._reference_count_lock = threading.Lock()
 
   @classmethod
-  def GetForRegion(cls, region, vpc_id=None):
+  def GetForRegion(cls, region, vpc_id=None, cidr_block='10.0.0.0/16'):
     """Retrieves or creates an _AwsRegionalNetwork.
 
     Args:
@@ -564,7 +591,7 @@ class _AwsRegionalNetwork(network.BaseNetwork):
     # is only called from AwsNetwork.GetNetwork, we already hold the
     # benchmark_spec.networks_lock.
     if key not in benchmark_spec.networks:
-      benchmark_spec.networks[key] = cls(region, vpc_id)
+      benchmark_spec.networks[key] = cls(region, vpc_id, cidr_block)
     return benchmark_spec.networks[key]
 
   def Create(self):
@@ -609,7 +636,7 @@ class _AwsRegionalNetwork(network.BaseNetwork):
 class AwsNetworkSpec(network.BaseNetworkSpec):
   """Configuration for creating an AWS network."""
 
-  def __init__(self, zone, vpc_id=None, subnet_id=None):
+  def __init__(self, zone, vpc_id=None, subnet_id=None, cidr=None):
     super(AwsNetworkSpec, self).__init__(zone)
     if vpc_id or subnet_id:
       logging.info('Confirming vpc (%s) and subnet (%s) selections', vpc_id,
@@ -620,6 +647,11 @@ class AwsNetworkSpec(network.BaseNetworkSpec):
       self.cidr_block = my_subnet['CidrBlock']
       logging.info('Using vpc %s subnet %s cidr %s', self.vpc_id,
                    self.subnet_id, self.cidr_block)
+    elif cidr: #  user  provided subnet
+        self.cidr_block = cidr
+        self.cidr = cidr
+        self.vpc_id = None
+        self.subnet_id = None
     else:
       self.vpc_id = None
       self.subnet_id = None
@@ -650,9 +682,12 @@ class AwsNetwork(network.BaseNetwork):
     super(AwsNetwork, self).__init__(spec)
     logging.warn("INIT NETWORK")
     self.region = util.GetRegionFromZone(spec.zone)
-    self.regional_network = _AwsRegionalNetwork.GetForRegion(
-        self.region, spec.vpc_id)
+    if spec.cidr and FLAGS.use_vpn:
+      self.regional_network = _AwsRegionalNetwork.GetForRegion(self.region, spec.vpc_id, spec.cidr)
+    else:
+      self.regional_network = _AwsRegionalNetwork.GetForRegion(self.region, spec.vpc_id)
     self.subnet = None
+    self.cidr = None
     self.placement_group = AwsPlacementGroup(self.region)
 
 
@@ -662,12 +697,19 @@ class AwsNetwork(network.BaseNetwork):
     logging.warn(FLAGS.run_uri)
     self.regional_network.Create()
 
+    if FLAGS.use_vpn and self.cidr:
+      self.subnet = AwsSubnet(self.zone, self.regional_network.vpc.id,
+                              cidr_block=self.cidr)
+      self.subnet.Create()
     if self.subnet is None:
       cidr = self.regional_network.vpc.NextSubnetCidrBlock()
       self.subnet = AwsSubnet(self.zone, self.regional_network.vpc.id,
                               cidr_block=cidr)
       self.subnet.Create()
     self.placement_group.Create()
+    if getattr(self, 'vpngw', False):
+      for gw in self.vpngw:
+        self.vpngw[gw].Create()
 
     if FLAGS.aws_global_accelerator:
       logging.warn("using aws global accelerator")
@@ -680,9 +722,6 @@ class AwsNetwork(network.BaseNetwork):
   def Delete(self):
     """Deletes the network."""
 
-    if FLAGS.aws_global_accelerator:
-      self.global_accelerator._Delete()
-      self.elastic_ip._Delete()
     if self.subnet:
       self.subnet.Delete()
     self.placement_group.Delete()
@@ -693,434 +732,3 @@ class AwsNetwork(network.BaseNetwork):
     """Returns a key used to register Network instances."""
     return (cls.CLOUD, ZONE, spec.zone)
 
-
-class AwsGlobalAccelerator(resource.BaseResource):
-  """An object representing an Aws Global Accelerator.
-  https://docs.aws.amazon.com/global-accelerator/latest/dg/getting-started.html"""
-
-# {
-#    "Accelerator": { 
-#       "AcceleratorArn": "string",
-#       "CreatedTime": number,
-#       "Enabled": boolean,
-#       "IpAddressType": "string",
-#       "IpSets": [ 
-#          { 
-#             "IpAddresses": [ "string" ],
-#             "IpFamily": "string"
-#          }
-#       ],
-#       "LastModifiedTime": number,
-#       "Name": "string",
-#       "Status": "string"
-#    }
-# }
-
-  def __init__(self):
-    super(AwsGlobalAccelerator, self).__init__()
-    # all global accelerators must be located in us-west-2
-    self.region = 'us-west-2'
-    self.idempotency_token = None
-
-    #The name can have a maximum of 32 characters, 
-    #must contain only alphanumeric characters or hyphens (-), 
-    #and must not begin or end with a hyphen.
-    self.name = None
-    self.accelerator_arn = None
-    self.enabled = False
-    self.ip_addresses = []
-    self.listeners = []
-
-# aws globalaccelerator create-accelerator 
-#         --name ExampleAccelerator
-#         --region us-west-2
-#         --idempotencytoken dcba4321-dcba-4321-dcba-dcba4321
-
-  def _Create(self):
-    """Creates the internet gateway."""
-    if not self.idempotency_token:
-      self.idempotency_token = str(uuid.uuid4())[-50:]
-
-    self.name = 'pkb-ga-%s-%s' % (FLAGS.run_uri, str(uuid.uuid4())[-12:])
-            
-    create_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'create-accelerator',
-        '--name', self.name,
-        '--region', self.region,
-        '--idempotency-token', self.idempotency_token]
-    stdout, _, _ = vm_util.IssueCommand(create_cmd)
-    response = json.loads(stdout)
-    self.accelerator_arn = response['Accelerator']['AcceleratorArn']
-    self.ip_addresses = response['Accelerator']['IpSets'][0]['IpAddresses']
-    logging.info("ACCELERATOR IP ADDRESSES")
-    logging.info(self.ip_addresses)
-    #util.AddDefaultTags(self.id, self.region)
-
-  #@vm_util.Retry()
-  def _Delete(self):
-    """Deletes the Accelerator."""
-    
-    # need to disable accelerator before it can be deleted
-    self._Update(enabled=False)
-    status = self.Describe()
-    while status['Accelerator']['Enabled'] == True:
-      status = self.Describe()
-    
-    # need to delete listeners before accelerator can be deleted
-    for listener in self.listeners:
-      listener._Delete()
-
-    delete_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'delete-accelerator',
-        '--region', self.region,
-        '--accelerator-arn', self.accelerator_arn]
-    stdout, stderr, _ = vm_util.IssueCommand(delete_cmd)
-
-    exists = self._Exists()
-    while exists:
-      vm_util.IssueCommand(delete_cmd)
-      if "AcceleratorNotFoundException" in stderr:
-        break
-      exists = self._Exists()
-
-  #@vm_util.Retry()
-  def _Update(self,enabled):
-    """Returns true if the internet gateway exists."""
-    update_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'update-accelerator',
-        '--region', self.region,
-        '--accelerator-arn', self.accelerator_arn]
-    if enabled:
-      update_cmd += ['--enabled']
-    else:
-      update_cmd += ['--no-enabled']
-    stdout, _ = util.IssueRetryableCommand(update_cmd)
-    response = json.loads(stdout)
-    accelerator = response['Accelerator']
-    # assert accelerator['Enabled'] == enabled, 'Accelerator not updated'
-
-  def _Exists(self):
-    """Returns true if the accelerator exists."""
-    describe_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'describe-accelerator',
-        '--region', self.region,
-        '--accelerator-arn', self.accelerator_arn]
-    stdout, _, _ = vm_util.IssueCommand(describe_cmd)
-    try:
-      response = json.loads(stdout)
-      accelerator = response['Accelerator']
-      return len(accelerator) > 0
-    except ValueError as e:
-        return False
-
-
-
-  def Describe(self):
-    """Returns true if the accelerator exists."""
-    describe_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'describe-accelerator',
-        '--region', self.region,
-        '--accelerator-arn', self.accelerator_arn]
-    stdout, _ = util.IssueRetryableCommand(describe_cmd)
-    response = json.loads(stdout)
-    return response
-
-  def Status(self):
-    """Returns true if the accelerator exists."""
-    describe_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'describe-accelerator',
-        '--region', self.region,
-        '--accelerator-arn', self.accelerator_arn]
-    stdout, _ = util.IssueRetryableCommand(describe_cmd)
-    response = json.loads(stdout)
-    status = response['Accelerator']['Status']
-    return status
-
-  #  @vm_util.Retry(poll_interval=1, log_errors=False, max_retries=5
-  #                retryable_exceptions=(AwsTransitionalVmRetryableError,))
-  def isUp(self):
-    """Returns true if the accelerator exists."""
-    describe_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'describe-accelerator',
-        '--region', self.region,
-        '--accelerator-arn', self.accelerator_arn]
-    stdout, _ = util.IssueRetryableCommand(describe_cmd)
-    response = json.loads(stdout)
-    status = response['Accelerator']['Status']
-    return status
-
-  def AddListener(self, protocol, start_port, end_port):
-    """Returns true if the accelerator exists."""   
-    self.listeners.append(AwsGlobalAcceleratorListener(self,
-                                                       protocol,
-                                                       start_port,
-                                                       end_port))
-    self.listeners[-1]._Create()
-
-
-class AwsGlobalAcceleratorListener(resource.BaseResource):
-  """Class representing an AWS Global Accelerator listener."""
-
-  def __init__(self, accelerator, protocol, start_port, end_port):
-    super(AwsGlobalAcceleratorListener, self).__init__()
-    self.accelerator_arn = accelerator.accelerator_arn
-    #self.target_group_arn = target_group.arn
-    self.start_port = start_port
-    self.end_port = end_port
-    self.protocol = protocol
-    self.region = accelerator.region
-    self.idempotency_token = None
-    self.arn = None
-    self.endpoint_groups = []
-
-# aws globalaccelerator create-listener 
-#        --accelerator-arn arn:aws:globalaccelerator::012345678901:accelerator/1234abcd-abcd-1234-abcd-1234abcdefgh 
-#        --port-ranges FromPort=80,ToPort=80 FromPort=81,ToPort=81 
-#        --protocol TCP
-#        --region us-west-2
-#        --idempotencytoken dcba4321-dcba-4321-dcba-dcba4321
-
-  def _Create(self):
-    if not self.idempotency_token:
-      self.idempotency_token = str(uuid.uuid4())[-50:]
-    """Create the listener."""
-    create_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'create-listener',
-        '--accelerator-arn', self.accelerator_arn,
-        '--region', self.region,
-        '--protocol', self.protocol,
-        '--port-ranges', 
-        'FromPort=%s,ToPort=%s' % (str(self.start_port), str(self.end_port)),
-        '--idempotency-token', self.idempotency_token
-    ]
-    stdout, _, _ = vm_util.IssueCommand(create_cmd)
-    response = json.loads(stdout)
-    self.listener_arn = response['Listener']['ListenerArn']
-    logging.info("LISTENER ARN")
-    logging.info(self.listener_arn)
-
-# RESPONSE
-# {
-#    "Listener": { 
-#       "ClientAffinity": "string",
-#       "ListenerArn": "string",
-#       "PortRanges": [ 
-#          { 
-#             "FromPort": number,
-#             "ToPort": number
-#          }
-#       ],
-#       "Protocol": "string"
-#    }
-# }
-
-  def _Exists(self):
-    """Returns true if the accelerator exists."""
-    describe_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'describe-listener',
-        '--region', self.region,
-        '--listener-arn', self.listener_arn]
-    stdout, _ = util.IssueRetryableCommand(describe_cmd)
-    response = json.loads(stdout)
-    accelerator = response['Listener']
-    return len(accelerator) > 0
-
-  def _Delete(self):
-    """Deletes Listeners"""
-    for endpoint_group in self.endpoint_groups:
-      endpoint_group._Delete()
-    delete_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'delete-listener',
-        '--region', self.region,
-        '--listener-arn', self.listener_arn]
-    vm_util.IssueCommand(delete_cmd)
-
-  def AddEndpointGroup(self, region, endpoint, weight):
-    """Add end point group to listener."""   
-    self.endpoint_groups.append(AwsEndpointGroup(self, region))
-
-    self.endpoint_groups[-1]._Create(endpoint, weight)
-
-class AwsEndpointGroup(resource.BaseResource):
-  """An object representing an Aws Global Accelerator.
-  https://docs.aws.amazon.com/global-accelerator/latest/dg/getting-started.html"""
-
-# {
-#    "EndpointGroup": { 
-#       "EndpointDescriptions": [ 
-#          { 
-#             "EndpointId": "string",
-#             "HealthReason": "string",
-#             "HealthState": "string",
-#             "Weight": number
-#          }
-#       ],
-#       "EndpointGroupArn": "string",
-#       "EndpointGroupRegion": "string",
-#       "HealthCheckIntervalSeconds": number,
-#       "HealthCheckPath": "string",
-#       "HealthCheckPort": number,
-#       "HealthCheckProtocol": "string",
-#       "ThresholdCount": number,
-#       "TrafficDialPercentage": number
-#    }
-# }
-
-  def __init__(self, listener, endpoint_group_region):
-    super(AwsEndpointGroup, self).__init__()
-    # all global accelerators must be located in us-west-2
-    self.region = 'us-west-2'
-    self.idempotency_token = None
-    self.listener_arn = listener.listener_arn
-    self.endpoint_group_region = endpoint_group_region
-    self.endpoint_group_arn = None
-    self.endpoints = []
-
-# aws globalaccelerator create-endpoint-group 
-#            --listener-arn arn:aws:globalaccelerator::012345678901:accelerator/1234abcd-abcd-1234-abcd-1234abcdefgh/listener/0123vxyz 
-#            --endpoint-group-region us-east-1 
-#            --endpoint-configurations EndpointId=eipalloc-eip01234567890abc,Weight=128
-#            --region us-west-2
-#            --idempotencytoken dcba4321-dcba-4321-dcba-dcba4321
-
-  def _Create(self, endpoint, weight=128):
-    """Creates the internet gateway."""
-    if not self.idempotency_token:
-      self.idempotency_token = str(uuid.uuid4())[-50:]
-
-    create_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'create-endpoint-group',
-        '--listener-arn', self.listener_arn,
-        '--endpoint-group-region', self.endpoint_group_region,
-        '--region', self.region,
-        '--idempotency-token', self.idempotency_token,
-        '--endpoint-configurations',
-        'EndpointId=%s,Weight=%s' % (endpoint, str(weight))]
-    stdout, _, _ = vm_util.IssueCommand(create_cmd)
-    response = json.loads(stdout)
-    self.endpoint_group_arn = response['EndpointGroup']['EndpointGroupArn']
-    self.endpoints.append(endpoint)
-    #util.AddDefaultTags(self.id, self.region)
-    return
-
-  def _Update(self, endpoint, weight=128):
-    """Update the endpoint group."""
-    if not self.idempotency_token:
-      self.idempotency_token = ''.join(
-        random.choice(string.ascii_lowercase + 
-                      string.ascii_uppercase +  
-                      string.digits) for i in range(50))
-
-    update_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'update-endpoint-group',
-        '--region', self.region,
-        '--endpoint-configurations',
-        'EndpointId=%s,Weight=%s' % (endpoint, str(weight))]
-    vm_util.IssueCommand(update_cmd)
-    #util.AddDefaultTags(self.id, self.region)
-
-  def _Delete(self):
-    """Deletes the endpoint group."""
-    delete_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'delete-endpoint-group',
-        '--region', self.region,
-        '--endpoint-group-arn', self.endpoint_group_arn]
-    vm_util.IssueCommand(delete_cmd)
-
-  def _Exists(self):
-    """Returns true if the internet gateway exists."""
-    describe_cmd = util.AWS_PREFIX + [
-        'globalaccelerator',
-        'describe-endpoint-group',
-        '--region', self.region,
-        '--endpoint-group-arn', self.endpoint_group_arn]
-    stdout, _ = util.IssueRetryableCommand(describe_cmd)
-    response = json.loads(stdout)
-    internet_gateways = response['EndpointGroup']
-    return len(internet_gateways) > 0
-
-
-class AwsElasticIP(resource.BaseResource):
-  """An object representing an Aws Internet Gateway."""
-
-  def __init__(self, region, domain='vpc'):
-    super(AwsElasticIP, self).__init__()
-    assert (domain in ('vpc', 'standard')), "Elastic IP domain type, %s, must be either vpc or standard" % domain
-    self.domain = domain
-    self.public_ip = None
-    self.region = region
-    self.allocation_id = None
-    self.attached = False
-    self.instance_id = None
-
-  def _Create(self):
-    """Creates the internet gateway."""
-    create_cmd = util.AWS_PREFIX + [
-        'ec2',
-        'allocate-address',
-        '--domain', self.domain,
-        '--region', self.region]
-    stdout, _, _ = vm_util.IssueCommand(create_cmd)
-    response = json.loads(stdout)
-    self.allocation_id = response['AllocationId']
-    self.public_ip = response['PublicIp']
-    #util.AddDefaultTags(self.id, self.region)
-
-  def _Delete(self):
-    """Deletes the internet gateway."""
-    delete_cmd = util.AWS_PREFIX + [
-        'ec2',
-        'release-address',
-        '--region', self.region,
-        '--allocation-id', self.allocation_id]
-    vm_util.IssueCommand(delete_cmd)
-
-  def _Exists(self):
-    """Returns true if the internet gateway exists."""
-    describe_cmd = util.AWS_PREFIX + [
-        'ec2',
-        'describe-addresses',
-        '--region', self.region,
-        '--allocation-ids', self.allocation_id]
-    stdout, _ = util.IssueRetryableCommand(describe_cmd)
-    response = json.loads(stdout)
-    addresses = response['Addresses']
-    return len(addresses) > 0
-
-#aws ec2 associate-address --instance-id i-0b263919b6498b123 --allocation-id eipalloc-64d5890a
-  def AssociateAddress(self, instance_id):
-    """Associates elastic IP with an EC2 instance in a VPC"""
-    if not self.attached:
-      self.instance_id = instance_id
-      attach_cmd = util.AWS_PREFIX + [
-          'ec2',
-          'associate-address',
-          '--region', self.region,
-          '--instance-id', self.instance_id,
-          '--allocation-id', self.allocation_id]
-      util.IssueRetryableCommand(attach_cmd)
-      self.attached = True
-
-  def DisassociateAddress(self):
-    """Detaches the internetgateway from the VPC."""
-    if self.attached:
-      detach_cmd = util.AWS_PREFIX + [
-          'ec2',
-          'disassociate-address',
-          '--region', self.region,
-          '--association-id', self.allocation_id]
-      util.IssueRetryableCommand(detach_cmd)
-      self.attached = False

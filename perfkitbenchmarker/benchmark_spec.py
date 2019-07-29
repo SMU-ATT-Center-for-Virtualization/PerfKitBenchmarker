@@ -35,6 +35,7 @@ from perfkitbenchmarker import context
 from perfkitbenchmarker import disk
 from perfkitbenchmarker import dpb_service
 from perfkitbenchmarker import edw_service
+from perfkitbenchmarker import vpn_service
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import managed_relational_db
@@ -147,6 +148,12 @@ class BenchmarkSpec(object):
     self.app_groups = {}
     self._zone_index = 0
     self.capacity_reservations = []
+
+    self.vpn_service = None
+    self.vpns = {}  # dict of vpn's
+    self.vpngws = {}  # dict of vpn gw's
+    self.vpngws_lock = threading.Lock()
+    self.vpns_lock = threading.Lock()
 
     # Modules can't be pickled, but functions can, so we store the functions
     # necessary to run the benchmark.
@@ -346,6 +353,8 @@ class BenchmarkSpec(object):
         group_spec.vm_spec.zone = zone_list[self._zone_index]
         self._zone_index = (self._zone_index + 1
                             if self._zone_index < len(zone_list) - 1 else 0)
+      if group_spec.cidr:  # apply cidr range to all vms in vm_group
+        group_spec.vm_spec.cidr = group_spec.cidr
       vm = self._CreateVirtualMachine(group_spec.vm_spec, os_type, cloud)
       if disk_spec and not vm.is_static:
         if disk_spec.disk_type == disk.LOCAL and disk_count is None:
@@ -460,6 +469,13 @@ class BenchmarkSpec(object):
                           'service'.format(name, spark_service.PKB_MANAGED))
         self.config.vm_groups[name] = spec
 
+  def ConstructVPNService(self):
+    """Create the VPNService object."""
+    if self.config.vpn_service is None:
+      return
+    vpn_service_spec = self.config.vpn_service
+    self.vpn_service = vpn_service.VPNService(vpn_service_spec)
+
   def Prepare(self):
     targets = [(vm.PrepareBackgroundWorkload, (), {}) for vm in self.vms]
     vm_util.RunParallelThreads(targets, len(targets))
@@ -544,6 +560,8 @@ class BenchmarkSpec(object):
           if network.__class__.__name__ == 'AwsNetwork':
             self.config.edw_service.subnet_id = network.subnet.id
       self.edw_service.Create()
+    if self.vpn_service:
+      self.vpn_service.Create()
 
   def Delete(self):
     if self.deleted:
@@ -601,6 +619,14 @@ class BenchmarkSpec(object):
       except Exception:
         logging.exception('Got an exception deleting networks. '
                           'Attempting to continue tearing down.')
+
+    if self.vpn_service:
+      self.vpn_service.Delete()
+      self.vpn_service = None
+      self.vpns = {}  # dict of vpn's
+      self.vpngws = {}  # dict of vpn gw's
+      self.vpngws_lock = threading.Lock()
+      self.vpns_lock = threading.Lock()
 
     self.deleted = True
 
@@ -777,3 +803,4 @@ class BenchmarkSpec(object):
     spec.status = benchmark_status.SKIPPED
     context.SetThreadBenchmarkSpec(spec)
     return spec
+
