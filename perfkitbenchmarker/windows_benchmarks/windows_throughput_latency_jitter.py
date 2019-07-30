@@ -73,7 +73,7 @@ def Run(benchmark_spec):
 
   ntttcp_results = ntttcp_benchmark.Run(benchmark_spec)
   for sample in ntttcp_results:
-    print("SAMPLE")
+    print("SAMPLE NTTTCP")
     print(type(sample))
     print(sample)
     sample.metadata['benchmark_name'] = 'ntttcp'

@@ -638,6 +638,17 @@ def DoRunPhase(spec, collector, timer):
       for s in samples:
         s.metadata['run_number'] = run_number
 
+    if FLAGS.use_vpn:
+      for s in samples:
+        if FLAGS.vpn_service_gateway_count:
+          s.metadata['vpn_service_tunnel_count'] = FLAGS.vpn_service_gateway_count
+        if FLAGS.vpn_service_routing_type:
+          s.metadata['vpn_service_routing_type'] = FLAGS.vpn_service_routing_type
+        if FLAGS.vpn_service_ike_version:
+          s.metadata['vpn_service_ike_version'] = FLAGS.vpn_service_ike_version
+        if FLAGS.vpn_service_gateway_count:
+          s.metadata['vpn_service_gateway_count'] = FLAGS.vpn_service_gateway_count
+
     # Add boot time metrics on the first run iteration.
     if run_number == 0 and (FLAGS.boot_samples or
                             spec.name == cluster_boot_benchmark.BENCHMARK_NAME):

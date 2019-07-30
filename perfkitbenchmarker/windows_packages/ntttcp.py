@@ -299,6 +299,7 @@ def ParseNtttcpResults(sender_xml_results, receiver_xml_results, metadata):
     else:
       metadata['receiver %s' % item.tag] = item.text
 
+  metadata['benchmark_name'] = 'ntttcp'
   metadata['sender rb'] = FLAGS.ntttcp_sender_rb
   metadata['sender sb'] = FLAGS.ntttcp_sender_rb
   metadata['receiver rb'] = FLAGS.ntttcp_receiver_rb
