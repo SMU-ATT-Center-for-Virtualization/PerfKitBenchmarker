@@ -24,16 +24,15 @@ import logging
 import re
 
 from perfkitbenchmarker import configs
-from perfkitbenchmarker import flag_util
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
+from perfkitbenchmarker import flag_util
 
 flag_util.DEFINE_integerlist('iperf_sending_thread_count', flag_util.IntegerList([1]),
-                     'Number of connections to make to the '
-                     'server for sending traffic. Iperf'
-                     'will run once for each value in the list', 
-                     module_name=__name__)
+                             'server for sending traffic. Iperf'
+                             'will run once for each value in the list', 
+                             module_name=__name__)
 flags.DEFINE_integer('iperf_runtime_in_seconds', 60,
                      'Number of seconds to run iperf.',
                      lower_bound=1)
@@ -71,16 +70,6 @@ def Prepare(benchmark_spec):
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
   """
-
-  #check iperf_sending_thread_counts are all > 0
-  #TODO maybe make this a ValueError? like below with the vm stuff
-  for thread_count in FLAGS.iperf_sending_thread_count:
-    if thread_count < 1:
-      logging.error("Flag iperf_sending_thread_count cannot be less than 1")
-      raise ValueError(
-        'Flag iperf sending thread count cannot be less than 1, found {0}'.format(
-          thread_count))
-
   vms = benchmark_spec.vms
   if len(vms) != 2:
     raise ValueError(
@@ -166,9 +155,8 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
 
 
 def Run(benchmark_spec):
-  """Run iperf on the target vm."""
+  """Run iperf on the target vm.
 
-  """
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
