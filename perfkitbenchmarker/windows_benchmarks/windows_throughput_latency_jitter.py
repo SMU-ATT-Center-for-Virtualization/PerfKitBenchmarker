@@ -27,11 +27,12 @@ FLAGS = flags.FLAGS
 BENCHMARK_NAME = 'windows_throughput_latency_jitter'
 BENCHMARK_CONFIG = """
 windows_throughput_latency_jitter:
-  description: Run iperf3 between two VMs.
+  description: Run ntttcp between two VMs.
   vm_groups:
-    default:
+    vm_1:
       vm_spec: *default_single_core
-      vm_count: 2
+    vm_2:
+      vm_spec: *default_single_core
 """
 
 
