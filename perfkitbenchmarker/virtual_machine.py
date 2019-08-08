@@ -451,7 +451,10 @@ class BaseVirtualMachine(resource.BaseResource):
         self.DownloadPreprovisionedData(install_path, module_name, filename)
       elif url:
         self.Install('wget')
-        self.RemoteCommand('wget -P {0} {1}'.format(install_path, url))
+        file_name = os.path.basename(url)
+        self.RemoteCommand(
+            'wget -O {0} {1}'.format(
+                os.path.join(install_path, file_name), url))
       else:
         raise errors.Setup.BadPreprovisionedDataError(
             'Cannot find preprovisioned file %s inside preprovisioned bucket '
@@ -905,7 +908,7 @@ class BaseOsMixin(six.with_metaclass(abc.ABCMeta, object)):
     prefix = 'pkb-' + os.path.basename(template_path)
 
     with vm_util.NamedTemporaryFile(prefix=prefix, dir=vm_util.GetTempDir(),
-                                    delete=False) as tf:
+                                    delete=False, mode='w') as tf:
       tf.write(template.render(vm=self, **context))
       tf.close()
       self.RemoteCopy(tf.name, remote_path)
