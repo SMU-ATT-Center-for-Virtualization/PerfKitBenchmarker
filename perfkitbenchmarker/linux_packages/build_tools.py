@@ -24,7 +24,7 @@ def YumInstall(vm):
 
 def AptInstall(vm):
   """Installs build tools on the VM."""
-  vm.InstallPackages('build-essential git libtool autoconf automake')
+  vm.InstallPackages('build-essential gcc make git libtool autoconf automake')
 
 
 def _GetVersion(vm, pkg):
