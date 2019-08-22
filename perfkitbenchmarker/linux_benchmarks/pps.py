@@ -47,8 +47,8 @@ flags.DEFINE_integer('pps_sending_thread_count', 1,
 #                      'killing iperf client command.',
 #                      lower_bound=1)
 
-# flags.DEFINE_string('iperf_tcp_window', None,
-#                     'tcp window size. User should also include units e.g. 2MB')
+flags.DEFINE_string('pps_target_bandwidth', '1G',
+                    'target pps Bandwidth')
 
 flags.DEFINE_integer('pps_packet_size', 10,
                      'packet size in bytes')
@@ -96,10 +96,10 @@ def Prepare(benchmark_spec):
             vms)))
 
   for vm in vms:
-    vm.Install('iperf3')
+    vm.Install('iperf')
     if vm_util.ShouldRunOnExternalIpAddress():
       vm.AllowPort(IPERF_PORT)
-    stdout, _ = vm.RemoteCommand(('nohup iperf3 --server --port %s &> /dev/null'
+    stdout, _ = vm.RemoteCommand(('nohup iperf --server -u --port %s &> /dev/null'
                                   '& echo $!') % IPERF_PORT)
     # TODO store this in a better place once we have a better place
     vm.iperf_server_pid = stdout.strip()
@@ -126,9 +126,10 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, ip_type):
     A Sample.
   """
   #iperf3 -c 10.128.0.4 -t 20 -V -u  -b 0 -l 100 -M 89
-  iperf_cmd = ('iperf3 -c %s --port %s -u -b 0 -t 60 -V -M %s -P %s -l %s ' %
+  iperf_cmd = ('iperf -c %s --port %s -u -b %s -t 60 -e -M %s -P %s -l %s ' %
                (receiving_ip_address,
-                IPERF_PORT, 
+                IPERF_PORT,
+                FLAGS.pps_target_bandwidth,
                 FLAGS.pps_mss_size, 
                 FLAGS.pps_sending_thread_count,
                 FLAGS.pps_packet_size))
@@ -154,6 +155,8 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, ip_type):
                                        timeout= 60 +
                                        timeout_buffer)
 
+  print(std_out)
+
   # Example output from iperf that needs to be parsed
 # [  4]  10.00-11.00  sec  35.9 MBytes   301 Mbits/sec  375970  
 # [  4]  11.00-12.00  sec  34.0 MBytes   286 Mbits/sec  356960  
@@ -172,6 +175,19 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, ip_type):
 # [  4] Sent 7009880 datagrams
 # CPU Utilization: local/sender 98.9% (7.8%u/91.0%s), remote/receiver 73.8% (8.8%u/65.1%s)
 
+# ------------------------------------------------------------
+# Client connecting to 172.17.0.7, UDP port 20000 with pid 4001
+# Sending 16 byte datagrams, IPG target: 0.12 us (kalman adjust)
+# UDP buffer size:  208 KByte (default)
+# ------------------------------------------------------------
+# [  3] local 172.17.0.6 port 46392 connected with 172.17.0.7 port 20000
+# [ ID] Interval        Transfer     Bandwidth      Write/Err  PPS
+# [  3] 0.00-60.00 sec   169 MBytes  23.6 Mbits/sec  11042999/0   184049 pps
+# [  3] Sent 11042999 datagrams
+# [  3] Server Report:
+# [  3]  0.0-120.1 sec   168 MBytes  11.8 Mbits/sec   0.000 ms  596/11042999 (0.0054%)
+#         interval       transfer    bandwidth        jitter    lost/total
+
   # next_line = False
   # for line in std_out.splitlines():
   #   print(line)
@@ -185,26 +201,52 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, ip_type):
   #     lost_total_datagrams = metrics[8].split('/')
   #     print(lost_total_datagrams)
 
-  lost_datagrams = 0
-  total_datagrams = 0
-  test_complete=False
+  num_threads = FLAGS.pps_sending_thread_count
+  lost_datagrams = [0] * num_threads
+  total_datagrams = [0] * num_threads
+  datagrams_per_second = [0] * num_threads
+  server_report = False
+  thread_num = 0
+
   for line in std_out.splitlines():
     print(line)
-    match = re.search('Test Complete', line)
+    match = re.search('Server Report', line)
     if match:
-      test_complete = True
-    elif test_complete == True:
-      match = re.search('SUM', line)
-      if match:
-        metrics = line.split()
-        print(metrics)
-        lost_total_datagrams = metrics[9].split('/')
-        lost_datagrams = lost_total_datagrams[0]
-        total_datagrams = lost_total_datagrams[1]
-        print(lost_total_datagrams)
+      server_report = True
+    elif server_report == True:
+      metrics = line.split()
+      print(metrics)
+      lost_total_datagrams = metrics[10].split('/')
+      lost_datagrams[thread_num] = int(lost_total_datagrams[0])
+      total_datagrams[thread_num] = int(lost_total_datagrams[1])
+      print(lost_total_datagrams)
+      datagrams_per_second[thread_num] = (total_datagrams[thread_num] - lost_datagrams[thread_num]) / 60
+      thread_num += 1
+      server_report = False
+
+  sum_datagrams = sum(datagrams_per_second)
+  print(sum_datagrams)
+
+  # lost_datagrams = 0
+  # total_datagrams = 0
+  # test_complete=False
+  # for line in std_out.splitlines():
+  #   print(line)
+  #   match = re.search('Test Complete', line)
+  #   if match:
+  #     test_complete = True
+  #   elif test_complete == True:
+  #     match = re.search('SUM', line)
+  #     if match:
+  #       metrics = line.split()
+  #       print(metrics)
+  #       lost_total_datagrams = metrics[9].split('/')
+  #       lost_datagrams = lost_total_datagrams[0]
+  #       total_datagrams = lost_total_datagrams[1]
+  #       print(lost_total_datagrams)
 
 
-  datagrams_per_second = (total_datagrams - lost_datagrams) / 60
+  # datagrams_per_second = (total_datagrams - lost_datagrams) / 60
 
 
   # stdout2 = stdout
@@ -256,10 +298,11 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, ip_type):
       'ip_type': ip_type,
       'total_datagrams': total_datagrams,
       'lost_datagrams': lost_datagrams,
+      'pps_target_bandwidth': FLAGS.pps_target_bandwidth,
       'MSS': FLAGS.pps_mss_size,
       'packet_size': FLAGS.pps_packet_size
   }
-  return sample.Sample('Datagram Throughput', datagrams_per_second, 'datagrams/sec', metadata)
+  return sample.Sample('Datagram Throughput', sum_datagrams, 'datagrams/sec', metadata)
 
 def Run(benchmark_spec):
   """Run iperf on the target vm.
