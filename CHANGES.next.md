@@ -24,6 +24,12 @@
 - Changed TF Serving benchmark to use ResNet instead of Inception.
 - Renamed prepare_sleep_time flag to after_prepare_sleep_time.
 - multichase_taskset_options flag changed to multichase_numactl_options.
+- Deprecated CUDA version 8.
+- Remove support for supplying CUDNN package path via the 'cudnn' flag.
+- Raise IssueCommandError by default when vm_util.IssueCommand return code is
+  non-zero.  Previous behavior can be emulated by setting
+  `raise_on_failure=False`.
+
 
 ### New features:
 - Windows benchmarks can now be run from linux controllers.
@@ -121,9 +127,8 @@
 - Added helpmatchmd flag to dump markdown formatted help strings
 - Enable specifying source ip when creating a firewall rule.
 - Added support for T4 GPUs on GCE.
-- Added ability to specify netperf `tcp_rr` and `udp_rr` test lengths in 
-  transactions with `netperf_rr_test_length` flag
-
+- Added mpstat utility to measure cpu processor stats.
+- Added a benchmark to run spark application on a cluster that computes an approximation to pi.
 
 ### Enhancements:
 - Support for ProfitBricks API v4:
@@ -312,9 +317,20 @@
 - Add support for different workload sizes for stress-ng.
 - Implemented RobustRemoteCommand for Windows.
 - Extract GceVirtualMachine's GetNetwork into a method.
+- Updated redis memtier benchmark to pre-populate the redis db before testing.
 - Add Clear Linux support for AWS stripe disks.
 - Load memcached server before running benchmark.
+- Add support for xfs disk formatting.
+- Add gluster_fio benchmark.
 - Added support for static AWS VPCs with --aws_vpc and --aws_subnet flags.
+- Added support to append a region name to a bucket name for object storage
+  benchmarking.
+- Added sysbench benchmarking for MySQL in a VM.
+- Added check that cuda_toolkit is installed when installing cudnn.
+- Added ability to set provider-specific MySQL flags for relational databases.
+- Add support for running t3 burstable VMs on AWS without unlimited mode.
+- Added support for reporting bigtable cluster cpu utilization, gated by flag
+  --get_bigtable_cluster_cpu_utilization.
 
 ### Bug fixes and maintenance updates:
 - Moved GPU-related specs from GceVmSpec to BaseVmSpec
@@ -505,3 +521,16 @@
   all the firewall rules that depend on the PKB-created network.
 - Fix AWS stripe disks assumption that the NVME index for the boot drive is always 0.
 - Increased default timeout for booting Windows VMs to 40 minutes.
+- Expose filesystem type and block size in vm metadata.
+- Fixed problem with AWS network creation in aws_dpb_emr, aws_nfs_service, and
+  elastic_container_service.
+- Create the client_vm of the relational_db attribute of BenchmarkSpec from the
+  default vm_group if there's no clients group. Fixes pgbench benchmark failure.
+- Fixed use of numpy.piecewise to be numpy > 1.13 compliant
+- Fixed the cluster boot benchmark config to use SSD boot disk types for GCP and
+  Azure, adding support for specifying a boot_disk_type in Azure.
+- Fixed the default path of the spark example jar on an EMR cluster.
+- Check if an AWS default route exists before creation.
+- Fixed the broken reference to ycsb.YCSB_TAR_URL in the
+  cloud_spanner_ycsb_benchmark. Without this, the benchmark is not runnable.
+- Fixed bug of query failing to find AWS internet gateway after Delete called.

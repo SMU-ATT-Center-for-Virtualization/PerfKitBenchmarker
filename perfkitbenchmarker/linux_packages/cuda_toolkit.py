@@ -75,7 +75,7 @@ flags.DEFINE_string('cuda_toolkit_installation_dir', '/usr/local/cuda',
                     'here. If it is already installed, the installation at '
                     'this path will be used.')
 
-flags.DEFINE_enum('cuda_toolkit_version', '9.0', ['8.0', '9.0', '10.0', '10.1'],
+flags.DEFINE_enum('cuda_toolkit_version', '9.0', ['9.0', '10.0', '10.1'],
                   'Version of CUDA Toolkit to install', module_name=__name__)
 
 FLAGS = flags.FLAGS
@@ -87,9 +87,6 @@ CUDA_10_0_TOOLKIT = 'https://developer.nvidia.com/compute/cuda/10.0/Prod/local_i
 
 CUDA_9_0_TOOLKIT = 'https://developer.nvidia.com/compute/cuda/9.0/Prod/local_installers/cuda-repo-ubuntu1604-9-0-local_9.0.176-1_amd64-deb'
 CUDA_9_0_PATCH = 'https://developer.nvidia.com/compute/cuda/9.0/Prod/patches/1/cuda-repo-ubuntu1604-9-0-local-cublas-performance-update_1.0-1_amd64-deb'
-
-CUDA_8_TOOLKIT = 'https://developer.nvidia.com/compute/cuda/8.0/Prod2/local_installers/cuda-repo-ubuntu1604-8-0-local-ga2_8.0.61-1_amd64-deb'
-CUDA_8_PATCH = 'https://developer.nvidia.com/compute/cuda/8.0/Prod2/patches/2/cuda-repo-ubuntu1604-8-0-local-cublas-performance-update_8.0.61-1_amd64-deb'
 
 EXTRACT_CLOCK_SPEEDS_REGEX = r'(\d*).*,\s*(\d*)'
 
@@ -375,7 +372,7 @@ def QueryGpuClockSpeed(vm, device_id):
   return (int(matches[0]), int(matches[1]))
 
 
-def _CheckNvidiaSmiExists(vm):
+def CheckNvidiaSmiExists(vm):
   """Returns whether nvidia-smi is installed or not"""
   resp, _ = vm.RemoteHostCommand('command -v nvidia-smi',
                                  ignore_failure=True,
@@ -416,23 +413,6 @@ def _InstallCudaPatch(vm, patch_url):
   # on AWS Ubuntu16.04 and thus causing the RemoteCommand to hang and fail.
   vm.RemoteCommand(
       'sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -yq cuda')
-
-
-def _InstallCuda8(vm):
-  """Installs CUDA Toolkit from NVIDIA.
-
-  Args:
-    vm: VM to install CUDA on
-  """
-  # Need to append .deb to package name because the file downloaded from
-  # NVIDIA is missing the .deb extension.
-  basename = posixpath.basename(CUDA_8_TOOLKIT) + '.deb'
-  vm.RemoteCommand('wget -q %s -O %s' % (CUDA_8_TOOLKIT,
-                                         basename))
-  vm.RemoteCommand('sudo dpkg -i %s' % basename)
-  vm.RemoteCommand('sudo apt-get update')
-  vm.RemoteCommand('sudo apt-get install -y cuda')
-  _InstallCudaPatch(vm, CUDA_8_PATCH)
 
 
 def _InstallCuda9Point0(vm):
@@ -484,15 +464,13 @@ def _InstallCuda10Point1(vm):
 
 def AptInstall(vm):
   """Installs CUDA toolkit on the VM if not already installed"""
-  if _CheckNvidiaSmiExists(vm):
+  if CheckNvidiaSmiExists(vm):
     DoPostInstallActions(vm)
     return
 
   vm.Install('build_tools')
   vm.Install('wget')
-  if FLAGS.cuda_toolkit_version == '8.0':
-    _InstallCuda8(vm)
-  elif FLAGS.cuda_toolkit_version == '9.0':
+  if FLAGS.cuda_toolkit_version == '9.0':
     _InstallCuda9Point0(vm)
   elif FLAGS.cuda_toolkit_version == '10.0':
     _InstallCuda10Point0(vm)

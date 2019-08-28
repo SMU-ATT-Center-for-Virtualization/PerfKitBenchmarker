@@ -31,7 +31,7 @@ from perfkitbenchmarker.linux_packages import INSTALL_DIR
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string('hadoop_version', '2.8.4', 'Version of hadoop.')
+flags.DEFINE_string('hadoop_version', '3.2.0', 'Version of hadoop.')
 
 DATA_FILES = ['hadoop/core-site.xml.j2', 'hadoop/yarn-site.xml.j2',
               'hadoop/hdfs-site.xml', 'hadoop/mapred-site.xml',
@@ -58,7 +58,7 @@ def CheckPrerequisites():
 def _Install(vm):
   vm.Install('openjdk')
   vm.Install('curl')
-  hadoop_url = ('http://www.us.apache.org/dist/hadoop/common/hadoop-{0}/'
+  hadoop_url = ('https://www-us.apache.org/dist/hadoop/common/hadoop-{0}/'
                 'hadoop-{0}.tar.gz').format(FLAGS.hadoop_version)
   vm.RemoteCommand(('mkdir {0} && curl -L {1} | '
                     'tar -C {0} --strip-components=1 -xzf -').format(

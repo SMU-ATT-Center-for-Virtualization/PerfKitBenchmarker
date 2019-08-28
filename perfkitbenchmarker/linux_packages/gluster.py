@@ -18,6 +18,7 @@
 import posixpath
 
 from perfkitbenchmarker import flags
+from perfkitbenchmarker import os_types
 from perfkitbenchmarker import vm_util
 
 FLAGS = flags.FLAGS
@@ -29,21 +30,24 @@ flags.DEFINE_integer(
     'gluster_stripes', 1,
     'The number of Gluster stripes.')
 
-GLUSTER_REPO_URL = ('http://download.gluster.org/pub/gluster/glusterfs/LATEST/'
-                    'RHEL/glusterfs-epel.repo')
-
 
 def YumInstall(vm):
   """Installs the gluster package on the VM."""
-  vm.Install('wget')
+  # TODO(user): Install gluster for RHEL.
+  if FLAGS.os_type != os_types.CENTOS7:
+    raise NotImplementedError(
+        'PKB currently only supports installation of gluster on centos7 or '
+        'Debian-based VMs.')
   vm.InstallEpelRepo()
-  vm.RemoteCommand('sudo wget -P /etc/yum.repos.d %s' % GLUSTER_REPO_URL)
+  vm.InstallPackages('centos-release-gluster')
   vm.InstallPackages('glusterfs-server')
   vm.RemoteCommand('sudo glusterd')
 
 
 def AptInstall(vm):
   """Installs the gluster package on the VM."""
+  vm.RemoteCommand('sudo add-apt-repository ppa:gluster/glusterfs-6')
+  vm.AptUpdate()
   vm.InstallPackages('glusterfs-server')
 
 
@@ -101,6 +105,12 @@ def ConfigureServers(gluster_servers, volume_name):
     volume_name: The name of the volume to be created.
   """
   vm_util.RunThreaded(lambda vm: vm.Install('gluster'), gluster_servers)
+  vm_util.RunThreaded(
+      lambda vm: vm.RemoteCommand('sudo systemctl enable glusterd'),
+      gluster_servers)
+  vm_util.RunThreaded(
+      lambda vm: vm.RemoteCommand('sudo systemctl start glusterd'),
+      gluster_servers)
 
   bricks = []
   for vm in gluster_servers:

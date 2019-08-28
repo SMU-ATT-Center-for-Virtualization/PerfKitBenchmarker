@@ -427,7 +427,7 @@ class BaseVirtualMachine(resource.BaseResource):
       fallback_url: The dict mapping filenames to fallback url for downloading.
 
     Raises:
-      errors.Setup.BadPreProvisionedDataError: If the module or filename are
+      errors.Setup.BadPreprovisionedDataError: If the module or filename are
           not defined with preprovisioned data, or if the sha256sum hash in the
           code does not match the sha256 of the file.
     """
@@ -451,9 +451,12 @@ class BaseVirtualMachine(resource.BaseResource):
         self.DownloadPreprovisionedData(install_path, module_name, filename)
       elif url:
         self.Install('wget')
-        self.RemoteCommand('wget -P {0} {1}'.format(install_path, url))
+        file_name = os.path.basename(url)
+        self.RemoteCommand(
+            'wget -O {0} {1}'.format(
+                os.path.join(install_path, file_name), url))
       else:
-        raise errors.Setup.BadPreProvisionedDataError(
+        raise errors.Setup.BadPreprovisionedDataError(
             'Cannot find preprovisioned file %s inside preprovisioned bucket '
             'in module %s. See README.md for information about '
             'preprovisioned data. '
@@ -491,7 +494,7 @@ class BaseVirtualMachine(resource.BaseResource):
       install_path: The path to download the data file.
 
     Raises:
-      errors.Setup.BadPreProvisionedDataError: If the benchmark or filename are
+      errors.Setup.BadPreprovisionedDataError: If the benchmark or filename are
           not defined with preprovisioned data, or if the sha256sum hash in the
           code does not match the sha256sum of the file.
     """
@@ -540,7 +543,7 @@ class BaseVirtualMachine(resource.BaseResource):
       install_path: The path to download the data file.
 
     Raises:
-      errors.Setup.BadPreProvisionedDataError: If the package or filename are
+      errors.Setup.BadPreprovisionedDataError: If the package or filename are
           not defined with preprovisioned data, or if the sha256sum hash in the
           code does not match the sha256sum of the file.
     """
@@ -905,7 +908,7 @@ class BaseOsMixin(six.with_metaclass(abc.ABCMeta, object)):
     prefix = 'pkb-' + os.path.basename(template_path)
 
     with vm_util.NamedTemporaryFile(prefix=prefix, dir=vm_util.GetTempDir(),
-                                    delete=False) as tf:
+                                    delete=False, mode='w') as tf:
       tf.write(template.render(vm=self, **context))
       tf.close()
       self.RemoteCopy(tf.name, remote_path)

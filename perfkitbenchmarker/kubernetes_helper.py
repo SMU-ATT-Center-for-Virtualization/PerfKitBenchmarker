@@ -66,7 +66,8 @@ def Get(resource, resourceInstanceName, labelFilter, jsonSelector):
   if len(labelFilter) > 0:
     get_pod_cmd.append('-l ' + labelFilter)
   get_pod_cmd.append('-ojsonpath={{{}}}'.format(jsonSelector))
-  stdout, stderr, _ = vm_util.IssueCommand(get_pod_cmd, suppress_warning=True)
+  stdout, stderr, _ = vm_util.IssueCommand(get_pod_cmd, suppress_warning=True,
+                                           raise_on_failure=False)
   if len(stderr) > 0:
     raise Exception("Error received from kubectl get: " + stderr)
   return stdout
@@ -83,7 +84,7 @@ def GetWithWaitForContents(resource, resourceInstanceName, filter, jsonFilter):
 
 
 def CreateResource(resource_body):
-  with vm_util.NamedTemporaryFile() as tf:
+  with vm_util.NamedTemporaryFile(mode='w') as tf:
     tf.write(resource_body)
     tf.close()
     CreateFromFile(tf.name)

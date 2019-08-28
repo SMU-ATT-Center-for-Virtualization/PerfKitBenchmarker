@@ -475,13 +475,13 @@ class GceFirewallRule(resource.BaseResource):
     """Deletes the Firewall Rule."""
     cmd = util.GcloudCommand(self, 'compute', 'firewall-rules', 'delete',
                              self.name)
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Returns True if the Firewall Rule exists."""
     cmd = util.GcloudCommand(self, 'compute', 'firewall-rules', 'describe',
                              self.name)
-    _, _, retcode = cmd.Issue(suppress_warning=True)
+    _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     return not retcode
 
 
@@ -591,7 +591,7 @@ class GceNetworkResource(resource.BaseResource):
         firewall_rule.Delete()
 
     cmd = util.GcloudCommand(self, 'compute', 'networks', 'delete', self.name)
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Returns True if the Network resource exists."""
@@ -641,7 +641,7 @@ class GceSubnetResource(resource.BaseResource):
                              self.name)
     if self.region:
       cmd.flags['region'] = self.region
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
 
 class GceNetwork(network.BaseNetwork):

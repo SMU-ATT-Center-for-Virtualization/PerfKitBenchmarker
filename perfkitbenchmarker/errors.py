@@ -131,7 +131,7 @@ class VirtualMachine(object):
 
 
 class VmUtil(object):
-  """Errors raised by vm_utils.py."""
+  """Errors raised by vm_util.py."""
 
   class RestConnectionError(Error):
     pass
@@ -148,9 +148,15 @@ class VmUtil(object):
   class CalledProcessException(Error):
     pass
 
+  class IssueCommandError(Error):
+    pass
+
 
 class Benchmarks(object):
   """Errors raised by individual benchmark."""
+
+  class BucketCreationError(Error):
+    pass
 
   class PrepareException(Error):
     pass
