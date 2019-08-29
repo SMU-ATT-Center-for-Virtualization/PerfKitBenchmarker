@@ -234,7 +234,7 @@ class VPNService(resource.BaseResource):
   def GetMetadata(self):
     """Return a dictionary of the metadata for VPNs created."""
     basic_data = {'vpn_service_name': self.name,
-                  'vpn_service_routing_type': self.routing_type,
+                  'vpn_service_routing_type': self.routing,
                   'vpn_service_ike_version': self.ike_version,
                   'vpn_service_tunnel_count': self.tunnel_count,
                   'vpn_service_gateway_count': self.gateway_count,
