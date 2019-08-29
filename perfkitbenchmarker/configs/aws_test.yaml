@@ -1,21 +1,21 @@
 #benchmark throughput_latency_jitter
 
-throughput_latency_jitter:
+iperf:
   flag_matrix: fmatrix
   flag_matrix_filters:
     fmatrix: "zones != extra_zones"
   flag_matrix_defs:
     fmatrix:
-      zones:  [us-west-2]
-      extra_zones:  [ap-northeast-1]
+      zones: [us-east-1a]
+      extra_zones: [eu-west-2]
       machine_type: [m5.large]
   flags:
     cloud: AWS
     iperf_runtime_in_seconds: 60
-    netperf_histogram_buckets: 1000
-    netperf_benchmarks: TCP_RR,TCP_STREAM
-    #netperf_rr_test_length: 100000
-    netperf_test_length: 60
-    netperf_num_streams: 4
-    iperf_sending_thread_count: 1,32
-    ping_also_run_using_external_ip: True
+    # netperf_histogram_buckets: 1000
+    # netperf_benchmarks: TCP_RR,TCP_STREAM
+    # #netperf_rr_test_length: 100000
+    # netperf_test_length: 60
+    # netperf_num_streams: 4
+    # iperf_sending_thread_count: 1,32
+    # ping_also_run_using_external_ip: True

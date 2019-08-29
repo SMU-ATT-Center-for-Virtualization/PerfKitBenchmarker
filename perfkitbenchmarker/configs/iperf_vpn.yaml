@@ -1,12 +1,13 @@
 # VPN iperf config.
-iperf_vpn:
+iperf:
   description: Run iperf over vpn 
   flags:
     iperf_vpn_sending_thread_count: 1
-    #use_vpn: True
+    use_vpn: True
     vpn_service_gateway_count: 1 # gw_count needs to be in global flags so it's available to network setup
+    vpn_service_tunnel_count: 2
   vpn_service:
-    tunnel_count: 1
+    tunnel_count: 2
     #gateway_count: 1
     ike_version: 2
     routing_type: static

@@ -1,12 +1,22 @@
-# VPN iperf config.
-iperf_vpn:
+#benchmark throughput_latency_jitter
+
+throughput_latency_jitter:
   description: Run iperf over vpn 
   flags:
-    iperf_vpn_sending_thread_count: 5
+    iperf_runtime_in_seconds: 60
+    netperf_histogram_buckets: 1000
+    netperf_benchmarks: TCP_RR,TCP_STREAM
+    #netperf_rr_test_length: 100000
+    netperf_test_length: 60
+    netperf_num_streams: 1,4,32
+    iperf_sending_thread_count: 1,4,32
+    ping_also_run_using_external_ip: True
+    use_nping: True
     use_vpn: True
     vpn_service_gateway_count: 1
+    vpn_service_tunnel_count: 2
   vpn_service:
-    tunnel_count: 1  # create multiple tunnels for ecmp load balance testing
+    tunnel_count: 2  # create multiple tunnels for ecmp load balance testing
     shared_key: DEADBEEF
     ike_version: 1
     routing_type: static
@@ -17,8 +27,8 @@ iperf_vpn:
       #zone: us-west1-b
       vm_spec: 
         GCP:
-            machine_type: n1-standard-4
-            zone: us-west1-b
+            machine_type: n1-standard-16
+            zone: us-west1-a
     vm_2:
       cloud: AWS
       cidr: 192.168.1.0/24
@@ -26,5 +36,5 @@ iperf_vpn:
       vm_spec:
         AWS:
             #machine_type: m5.large
-            machine_type: t2.micro
-            zone: us-east-1b
+            machine_type: m4.4xlarge
+            zone: us-east-1a

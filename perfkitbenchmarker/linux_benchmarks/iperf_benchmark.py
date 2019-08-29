@@ -98,7 +98,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   Returns:
     A Sample.
   """
-  iperf_cmd = ('iperf --client %s --port %s --format m --time %s -P %s' %
+  iperf_cmd = ('iperf -e --client %s --port %s --format m --time %s -P %s' %
                (receiving_ip_address, IPERF_PORT,
                 FLAGS.iperf_runtime_in_seconds,
                 thread_count))
@@ -109,6 +109,8 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
                                        timeout=FLAGS.iperf_runtime_in_seconds +
                                        timeout_buffer)
 
+  print("OUTPUT")
+  print(stdout)
   # Example output from iperf that needs to be parsed
   # STDOUT: ------------------------------------------------------------
   # Client connecting to 10.237.229.201, TCP port 5001
@@ -124,6 +126,19 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   # [  6]  0.0-60.0 sec  3044 MBytes   425 Mbits/sec
   # [  3]  0.0-60.0 sec  3738 MBytes   522 Mbits/sec
   # [SUM]  0.0-60.0 sec  14010 MBytes  1957 Mbits/sec
+
+
+  #NEW OUTPUT
+#   ------------------------------------------------------------
+# Client connecting to 172.17.0.5, TCP port 20000 with pid 4167
+# Write buffer size: 0.12 MByte
+# TCP window size: 1.42 MByte (default)
+# ------------------------------------------------------------
+# [  3] local 172.17.0.6 port 45518 connected with 172.17.0.5 port 20000 (ct=0.08 ms)
+# [ ID] Interval        Transfer    Bandwidth       Write/Err  Rtry     Cwnd/RTT        NetPwr
+# [  3] 0.00-60.00 sec  236112 MBytes  33011 Mbits/sec  1888894/0          0       -1K/25 us  165054051.49
+
+
 
   thread_values = re.findall(r'\[SUM].*\s+(\d+\.?\d*).Mbits/sec', stdout)
   if not thread_values:
