@@ -51,7 +51,7 @@ flags.DEFINE_integer('tcp_stream_seconds', 3,
 flags.DEFINE_integer('tcp_number_of_streams', 10,
                      'The number of parrallel streams to run in the TCP test.')
 
-flags.DEFINE_integer('socket_buffer_size', None,
+flags.DEFINE_float('socket_buffer_size', None,
                      'The socket buffer size in megabytes. If None is '
                      'specified then the socket buffer size will not be set.')
 
@@ -98,7 +98,7 @@ def RunIperf3TCPMultiStream(sending_vm, receiving_vm, use_internal_ip=True):
     socket_buffer_string = ' -w {socket_buffer}M '.format(
         socket_buffer=FLAGS.socket_buffer_size)
 
-  sender_args = ('--client {ip} --port {port} -t {time} -P {num_streams} -f m '
+  sender_args = ('--client {ip} -d --port {port} -t {time} -P {num_streams} -f m '
                  ' {socket_buffer_arg} > {out_file}').format(
                      ip=receiver_ip,
                      port=IPERF3_TCP_PORT,
@@ -283,9 +283,12 @@ def ParseTCPMultiStreamOutput(results, sending_vm, receiving_vm, num_streams,
   Returns:
     List of samples representing the results.
   """
+  print("RESULTS")
+  print(results)
   data_lines = [line.rstrip('\r') for line in results.split('\n')]
   data_lines = [line for line in data_lines if 'receiver' in line]
 
+  #TODO only select SUM threads
   samples = []
   for line in data_lines:
     line_data = [val for val in line.split(' ') if val]
