@@ -175,22 +175,25 @@ class AwsVpc(resource.BaseResource):
 
   def _SetSecurityGroupId(self):
     """Looks up the VPC default security group."""
+    groups = self.GetSecurityGroups('default')
+    if len(groups) != 1:
+      raise ValueError('Expected one security group, got {} in {}'.format(
+          len(groups), groups))
+    self.default_security_group_id = groups[0]['GroupId']
+    logging.info('Default security group ID: %s',
+                 self.default_security_group_id)
+
+  def GetSecurityGroups(self, group_name=None):
     cmd = util.AWS_PREFIX + [
         'ec2',
         'describe-security-groups',
         '--region', self.region,
         '--filters',
-        'Name=group-name,Values=default',
         'Name=vpc-id,Values=' + self.id]
+    if group_name:
+      cmd.append('Name=group-name,Values={}'.format(group_name))
     stdout, _, _ = vm_util.IssueCommand(cmd)
-    response = json.loads(stdout)
-    groups = response['SecurityGroups']
-    if len(groups) != 1:
-      raise ValueError('Expected one security group, got {} in {}'.format(
-          len(groups), response))
-    self.default_security_group_id = groups[0]['GroupId']
-    logging.info('Default security group ID: %s',
-                 self.default_security_group_id)
+    return json.loads(stdout)['SecurityGroups']
 
   def _Exists(self):
     """Returns true if the VPC exists."""
@@ -230,7 +233,7 @@ class AwsVpc(resource.BaseResource):
         'delete-vpc',
         '--region=%s' % self.region,
         '--vpc-id=%s' % self.id]
-    vm_util.IssueCommand(delete_cmd)
+    vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def NextSubnetCidrBlock(self):
     """Returns the next available /24 CIDR block in this VPC.
@@ -291,7 +294,7 @@ class AwsSubnet(resource.BaseResource):
         'delete-subnet',
         '--region=%s' % self.region,
         '--subnet-id=%s' % self.id]
-    vm_util.IssueCommand(delete_cmd)
+    vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _Exists(self):
     """Returns true if the subnet exists."""
@@ -331,8 +334,9 @@ class AwsInternetGateway(resource.BaseResource):
     self.attached = False
     if vpc_id:
       self.vpc_id = vpc_id
-      self.id = self.GetDict()['InternetGatewayId']
-      self.attached = True
+      self.id = self.GetDict().get('InternetGatewayId')
+      # if a gateway was found then it is attached to this VPC
+      self.attached = bool(self.id)
 
   def _Create(self):
     """Creates the internet gateway."""
@@ -352,7 +356,7 @@ class AwsInternetGateway(resource.BaseResource):
         'delete-internet-gateway',
         '--region=%s' % self.region,
         '--internet-gateway-id=%s' % self.id]
-    vm_util.IssueCommand(delete_cmd)
+    vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _Exists(self):
     """Returns true if the internet gateway exists."""
@@ -375,9 +379,16 @@ class AwsInternetGateway(resource.BaseResource):
     if self.id:
       describe_cmd.append('--filter=Name=internet-gateway-id,Values=%s' %
                           self.id)
-    if self.vpc_id:
+    elif self.vpc_id:
+      # Only query with self.vpc_id if the self.id is NOT set -- after calling
+      # Detact() this object will set still have a vpc_id but will be filtered
+      # out in a query if using attachment.vpc-id.
+      # Using self.vpc_id instead of self.attached as the init phase always
+      # sets it to False.
       describe_cmd.append('--filter=Name=attachment.vpc-id,Values=%s' %
                           self.vpc_id)
+    else:
+      raise errors.Error('Must have a VPC id or a gateway id')
     stdout, _ = util.IssueRetryableCommand(describe_cmd)
     response = json.loads(stdout)
     internet_gateways = response['InternetGateways']
@@ -435,17 +446,33 @@ class AwsRouteTable(resource.BaseResource):
   @vm_util.Retry()
   def _PostCreate(self):
     """Gets data about the route table."""
+    self.id = self.GetDict()[0]['RouteTableId']
+
+  def GetDict(self):
+    """Returns an array of the currently existing routes for this VPC."""
     describe_cmd = util.AWS_PREFIX + [
         'ec2',
         'describe-route-tables',
         '--region=%s' % self.region,
         '--filters=Name=vpc-id,Values=%s' % self.vpc_id]
     stdout, _ = util.IssueRetryableCommand(describe_cmd)
-    response = json.loads(stdout)
-    self.id = response['RouteTables'][0]['RouteTableId']
+    return json.loads(stdout)['RouteTables']
+
+  def RouteExists(self):
+    """Returns true if the 0.0.0.0/0 route already exists."""
+    route_tables = self.GetDict()
+    if not route_tables:
+      return False
+    for route in route_tables[0].get('Routes', []):
+      if route.get('DestinationCidrBlock') == '0.0.0.0/0':
+        return True
+    return False
 
   def CreateRoute(self, internet_gateway_id):
     """Adds a route to the internet gateway."""
+    if self.RouteExists():
+      logging.info('Internet route already exists.')
+      return
     create_cmd = util.AWS_PREFIX + [
         'ec2',
         'create-route',
@@ -492,7 +519,8 @@ class AwsPlacementGroup(resource.BaseResource):
         'delete-placement-group',
         '--region=%s' % self.region,
         '--group-name=%s' % self.name]
-    vm_util.IssueCommand(delete_cmd)
+    # Failed deletes are ignorable (probably already deleted).
+    vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _Exists(self):
     """Returns true if the Placement Group exists."""

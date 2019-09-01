@@ -47,6 +47,9 @@ from perfkitbenchmarker.providers.aws import util
 from six.moves import range
 
 FLAGS = flags.FLAGS
+flags.DEFINE_enum('aws_credit_specification', None,
+                  ['CpuCredits=unlimited', 'CpuCredits=standard'],
+                  'Credit specification for burstable vms.')
 
 HVM = 'hvm'
 PV = 'paravirtual'
@@ -268,7 +271,7 @@ class AwsDedicatedHost(resource.BaseResource):
           'release-hosts',
           '--region=%s' % self.region,
           '--host-ids=%s' % self.id]
-      vm_util.IssueCommand(delete_cmd)
+      vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   @vm_util.Retry()
   def _Exists(self):
@@ -330,10 +333,16 @@ class AwsVmSpec(virtual_machine.BaseVmSpec):
     """
     result = super(AwsVmSpec, cls)._GetOptionDecoderConstructions()
     result.update({
-        'use_spot_instance': (option_decoders.BooleanDecoder,
-                              {'default': False}),
-        'spot_price': (option_decoders.FloatDecoder, {'default': None}),
-        'boot_disk_size': (option_decoders.IntDecoder, {'default': None})})
+        'use_spot_instance': (option_decoders.BooleanDecoder, {
+            'default': False
+        }),
+        'spot_price': (option_decoders.FloatDecoder, {
+            'default': None
+        }),
+        'boot_disk_size': (option_decoders.IntDecoder, {
+            'default': None
+        })
+    })
 
     return result
 
@@ -629,6 +638,9 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
       create_cmd.append('--block-device-mappings=%s' % block_device_map)
     if placement:
       create_cmd.append('--placement=%s' % placement)
+    if FLAGS.aws_credit_specification:
+      create_cmd.append('--credit-specification=%s' %
+                        FLAGS.aws_credit_specification)
     if self.user_data:
       create_cmd.append('--user-data=%s' % self.user_data)
     if self.capacity_reservation_id:
@@ -646,7 +658,8 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
       instance_market_options['SpotOptions'] = spot_options
       create_cmd.append(
           '--instance-market-options=%s' % json.dumps(instance_market_options))
-    _, stderr, retcode = vm_util.IssueCommand(create_cmd)
+    _, stderr, retcode = vm_util.IssueCommand(create_cmd,
+                                              raise_on_failure=False)
 
     machine_type_prefix = self.machine_type.split('.')[0]
     host_arch = _MACHINE_TYPE_PREFIX_TO_HOST_ARCH.get(machine_type_prefix)
@@ -688,14 +701,14 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
           'terminate-instances',
           '--region=%s' % self.region,
           '--instance-ids=%s' % self.id]
-      vm_util.IssueCommand(delete_cmd)
+      vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
     if hasattr(self, 'spot_instance_request_id'):
       cancel_cmd = util.AWS_PREFIX + [
           '--region=%s' % self.region,
           'ec2',
           'cancel-spot-instance-requests',
           '--spot-instance-request-ids=%s' % self.spot_instance_request_id]
-      vm_util.IssueCommand(cancel_cmd)
+      vm_util.IssueCommand(cancel_cmd, raise_on_failure=False)
 
   @vm_util.Retry(max_retries=5)
   def UpdateInterruptibleVmStatus(self):
@@ -866,6 +879,17 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
     Returns: Early termination code.
     """
     return self.spot_status_code
+
+  def GetResourceMetadata(self):
+    """Returns a dict containing metadata about the VM.
+
+    Returns:
+      dict mapping string property key to value.
+    """
+    result = super(AwsVirtualMachine, self).GetResourceMetadata()
+    result['boot_disk_type'] = self.DEFAULT_ROOT_DISK_TYPE
+    result['boot_disk_size'] = self.boot_disk_size or 'default'
+    return result
 
 
 class DebianBasedAwsVirtualMachine(AwsVirtualMachine,

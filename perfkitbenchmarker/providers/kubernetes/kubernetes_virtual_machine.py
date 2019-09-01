@@ -112,9 +112,7 @@ class KubernetesVirtualMachine(virtual_machine.BaseVirtualMachine):
                         '--ceph_monitors flag.')
 
   def _CreatePod(self):
-    """
-    Creates a POD (Docker container with optional volumes).
-    """
+    """Creates a POD (Docker container with optional volumes)."""
     create_rc_body = self._BuildPodBody()
     logging.info('About to create a pod with the following configuration:')
     logging.info(create_rc_body)
@@ -123,12 +121,13 @@ class KubernetesVirtualMachine(virtual_machine.BaseVirtualMachine):
   @vm_util.Retry(poll_interval=10, max_retries=100, log_errors=False)
   def _WaitForPodBootCompletion(self):
     """
-    Need to wait for the PODs to get up  - PODs are created with a little delay.
+    Need to wait for the PODs to get up - PODs are created with a little delay.
     """
     exists_cmd = [FLAGS.kubectl, '--kubeconfig=%s' % FLAGS.kubeconfig, 'get',
                   'pod', '-o=json', self.name]
     logging.info('Waiting for POD %s' % self.name)
-    pod_info, _, _ = vm_util.IssueCommand(exists_cmd, suppress_warning=True)
+    pod_info, _, _ = vm_util.IssueCommand(exists_cmd, suppress_warning=True,
+                                          raise_on_failure=False)
     if pod_info:
       pod_info = json.loads(pod_info)
       containers = pod_info['spec']['containers']
@@ -145,7 +144,7 @@ class KubernetesVirtualMachine(virtual_machine.BaseVirtualMachine):
     """Deletes a POD."""
     delete_pod = [FLAGS.kubectl, '--kubeconfig=%s' % FLAGS.kubeconfig,
                   'delete', 'pod', self.name]
-    output = vm_util.IssueCommand(delete_pod)
+    output = vm_util.IssueCommand(delete_pod, raise_on_failure=False)
     logging.info(output[STDOUT].rstrip())
 
   @vm_util.Retry(poll_interval=10, max_retries=20)
@@ -153,7 +152,8 @@ class KubernetesVirtualMachine(virtual_machine.BaseVirtualMachine):
     """POD should have been already created but this is a double check."""
     exists_cmd = [FLAGS.kubectl, '--kubeconfig=%s' % FLAGS.kubeconfig, 'get',
                   'pod', '-o=json', self.name]
-    pod_info, _, _ = vm_util.IssueCommand(exists_cmd, suppress_warning=True)
+    pod_info, _, _ = vm_util.IssueCommand(
+        exists_cmd, suppress_warning=True, raise_on_failure=False)
     if pod_info:
       return True
     return False
@@ -346,7 +346,8 @@ class DebianBasedKubernetesVirtualMachine(KubernetesVirtualMachine,
            self.name, '--', '/bin/bash', '-c', command]
     stdout, stderr, retcode = vm_util.IssueCommand(
         cmd, force_info_log=should_log,
-        suppress_warning=suppress_warning, timeout=timeout)
+        suppress_warning=suppress_warning, timeout=timeout,
+        raise_on_failure=False)
     if not ignore_failure and retcode:
       error_text = ('Got non-zero return code (%s) executing %s\n'
                     'Full command: %s\nSTDOUT: %sSTDERR: %s' %
@@ -388,7 +389,7 @@ class DebianBasedKubernetesVirtualMachine(KubernetesVirtualMachine,
       src_spec, dest_spec = '%s:%s' % (self.name, remote_path), file_path
     cmd = [FLAGS.kubectl, '--kubeconfig=%s' % FLAGS.kubeconfig,
            'cp', src_spec, dest_spec]
-    stdout, stderr, retcode = vm_util.IssueCommand(cmd)
+    stdout, stderr, retcode = vm_util.IssueCommand(cmd, raise_on_failure=False)
     if retcode:
       error_text = ('Got non-zero return code (%s) executing %s\n'
                     'STDOUT: %sSTDERR: %s' %
@@ -414,6 +415,9 @@ class DebianBasedKubernetesVirtualMachine(KubernetesVirtualMachine,
       key = f.read()
       self.RemoteCommand('echo "%s" >> ~/.ssh/authorized_keys' % key)
 
+    # Needed for the MKL math library.
+    self.InstallPackages('cpio')
+
     # Don't assume the relevant CLI is installed in the Kubernetes environment.
     if FLAGS.container_cluster_cloud == 'GCP':
       self.InstallGcloudCli()
@@ -436,7 +440,9 @@ class DebianBasedKubernetesVirtualMachine(KubernetesVirtualMachine,
   def InstallGcloudCli(self):
     """Installs the Gcloud CLI; used for downloading preprovisioned data."""
     self.InstallPackages('curl')
-    self.RemoteCommand('echo "deb http://packages.cloud.google.com/apt '
+    # The driver /usr/lib/apt/methods/https is sometimes needed for apt-get.
+    self.InstallPackages('apt-transport-https')
+    self.RemoteCommand('echo "deb https://packages.cloud.google.com/apt '
                        'cloud-sdk-$(lsb_release -c -s) main" | sudo tee -a '
                        '/etc/apt/sources.list.d/google-cloud-sdk.list')
     self.RemoteCommand('curl https://packages.cloud.google.com/apt/doc/'

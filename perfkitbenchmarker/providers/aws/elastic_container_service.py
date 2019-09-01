@@ -100,7 +100,7 @@ class _EksControlPlane(resource.BaseResource):
     ]
     if not FLAGS.eks_verify_ssl:
       delete_cmd.append('--no-verify-ssl')
-    vm_util.IssueCommand(delete_cmd)
+    vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _IsReady(self):
     """Returns True if the control plane is ready, else False."""
@@ -161,7 +161,7 @@ class _EksWorkers(resource.BaseResource):
         '--stack-name', self.name,
         '--client-request-token', self.delete_token,
     ]
-    vm_util.IssueCommand(delete_cmd)
+    vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _IsReady(self):
     """Returns True if the stack has finished creating, else False."""
@@ -170,7 +170,7 @@ class _EksWorkers(resource.BaseResource):
         'cloudformation', 'wait', 'stack-create-complete',
         '--stack-name', self.name,
     ]
-    _, _, retcode = vm_util.IssueCommand(wait_cmd)
+    _, _, retcode = vm_util.IssueCommand(wait_cmd, raise_on_failure=False)
     return retcode == 0
 
   def _IsDeleting(self):

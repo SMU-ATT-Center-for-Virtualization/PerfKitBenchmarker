@@ -244,7 +244,7 @@ class GceSoleTenantNodeTemplate(resource.BaseResource):
     cmd = util.GcloudCommand(self, 'compute', 'sole-tenancy',
                              'node-templates', 'delete', self.name)
     cmd.flags['region'] = self.region
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
 
 class GceSoleTenantNodeGroup(resource.BaseResource):
@@ -276,7 +276,7 @@ class GceSoleTenantNodeGroup(resource.BaseResource):
                              'node-groups', 'create', self.name)
     cmd.flags['node-template'] = self.node_template.name
     cmd.flags['target-size'] = 1
-    _, stderr, retcode = cmd.Issue()
+    _, stderr, retcode = cmd.Issue(raise_on_failure=False)
     util.CheckGcloudResponseKnownFailures(stderr, retcode)
 
   def _CreateDependencies(self):
@@ -302,7 +302,7 @@ class GceSoleTenantNodeGroup(resource.BaseResource):
     """Deletes the host."""
     cmd = util.GcloudCommand(self, 'compute', 'sole-tenancy',
                              'node-groups', 'delete', self.name)
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
 
 def GenerateAcceleratorSpecString(accelerator_type, accelerator_count):
@@ -377,8 +377,8 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
     self.network = gce_network.GceNetwork.GetNetwork(self)
     self.network = self._GetNetwork()
     self.firewall = gce_network.GceFirewall.GetFirewall()
-    self.boot_disk_size = vm_spec.boot_disk_size
-    self.boot_disk_type = vm_spec.boot_disk_type
+    self.boot_disk_size = vm_spec.boot_disk_size or self.BOOT_DISK_SIZE_GB
+    self.boot_disk_type = vm_spec.boot_disk_type or self.BOOT_DISK_TYPE
     self.id = None
     self.node_type = vm_spec.node_type
     self.node_group = None
@@ -423,8 +423,8 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
     if self.image_project is not None:
       cmd.flags['image-project'] = self.image_project
     cmd.flags['boot-disk-auto-delete'] = True
-    cmd.flags['boot-disk-size'] = self.boot_disk_size or self.BOOT_DISK_SIZE_GB
-    cmd.flags['boot-disk-type'] = self.boot_disk_type or self.BOOT_DISK_TYPE
+    cmd.flags['boot-disk-size'] = self.boot_disk_size
+    cmd.flags['boot-disk-type'] = self.boot_disk_type
     if self.machine_type is None:
       cmd.flags['custom-cpu'] = self.cpus
       cmd.flags['custom-memory'] = '{0}MiB'.format(self.memory_mib)
@@ -496,7 +496,8 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
       tf.write('%s:%s\n' % (self.user_name, public_key))
       tf.close()
       create_cmd = self._GenerateCreateCommand(tf.name)
-      _, stderr, retcode = create_cmd.Issue(timeout=_GCE_VM_CREATE_TIMEOUT)
+      _, stderr, retcode = create_cmd.Issue(timeout=_GCE_VM_CREATE_TIMEOUT,
+                                            raise_on_failure=False)
 
     if (self.use_dedicated_host and retcode and
         _INSUFFICIENT_HOST_CAPACITY in stderr and not self.num_vms_per_host):
@@ -592,13 +593,14 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
     """Delete a GCE VM instance."""
     delete_cmd = util.GcloudCommand(self, 'compute', 'instances', 'delete',
                                     self.name)
-    delete_cmd.Issue()
+    delete_cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Returns true if the VM exists."""
     getinstance_cmd = util.GcloudCommand(self, 'compute', 'instances',
                                          'describe', self.name)
-    stdout, _, _ = getinstance_cmd.Issue(suppress_warning=True)
+    stdout, _, _ = getinstance_cmd.Issue(suppress_warning=True,
+                                         raise_on_failure=False)
     try:
       response = json.loads(stdout)
     except ValueError:
@@ -714,6 +716,8 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
     result['gce_network_tier'] = self.gce_network_tier
     result[
         'gce_shielded_secure_boot'] = self.gce_shielded_secure_boot
+    result['boot_disk_type'] = self.boot_disk_type
+    result['boot_disk_size'] = self.boot_disk_size
     return result
 
   def SimulateMaintenanceEvent(self):

@@ -81,7 +81,8 @@ class AzureResourceGroup(resource.BaseResource):
           [azure.AZURE_PATH, 'group', 'create',
            '--name', self.name,
            '--location', self.location,
-           '--tags'] + util.GetTags(self.timeout_minutes))
+           '--tags'] + util.GetTags(self.timeout_minutes),
+          raise_on_failure=False)
 
       if retcode:
         raise errors.Resource.RetryableCreationError(
@@ -90,7 +91,7 @@ class AzureResourceGroup(resource.BaseResource):
   def _Exists(self):
     stdout, _, _ = vm_util.IssueCommand(
         [azure.AZURE_PATH, 'group', 'show', '--name', self.name],
-        suppress_warning=True)
+        suppress_warning=True, raise_on_failure=False)
     try:
       json.loads(stdout)
       return True
@@ -98,9 +99,10 @@ class AzureResourceGroup(resource.BaseResource):
       return False
 
   def _Delete(self):
+    # Ignore delete failures (potentially already deleted)
     vm_util.IssueCommand(
         [azure.AZURE_PATH, 'group', 'delete', '--yes', '--name', self.name],
-        timeout=600)
+        timeout=600, raise_on_failure=False)
 
   def AddTag(self, key, value):
     """Add a single tag to an existing Resource Group.
@@ -114,7 +116,7 @@ class AzureResourceGroup(resource.BaseResource):
     """
     _, _, retcode = vm_util.IssueCommand(
         [azure.AZURE_PATH, 'group', 'update', '--name', self.name,
-         '--set', 'tags.' + util.FormatTag(key, value)])
+         '--set', 'tags.' + util.FormatTag(key, value)], raise_on_failure=False)
     if retcode:
       raise errors.resource.CreationError('Error tagging Azure resource group.')
 
@@ -153,7 +155,7 @@ class AzureAvailSet(resource.BaseResource):
                 '--output', 'json',
                 '--resource-group', self.resource_group.name,
                 '--name', self.name]
-    stdout, _, _ = vm_util.IssueCommand(show_cmd)
+    stdout, _, _ = vm_util.IssueCommand(show_cmd, raise_on_failure=False)
     return bool(json.loads(stdout))
 
 
@@ -219,7 +221,7 @@ class AzureStorageAccount(resource.BaseResource):
                   'delete',
                   '--name', self.name,
                   '--yes'] + self.resource_group.args
-    vm_util.IssueCommand(delete_cmd)
+    vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _Exists(self):
     """Returns true if the storage account exists."""
@@ -227,7 +229,8 @@ class AzureStorageAccount(resource.BaseResource):
         [azure.AZURE_PATH, 'storage', 'account', 'show',
          '--output', 'json',
          '--name', self.name] + self.resource_group.args,
-        suppress_warning=True)
+        suppress_warning=True,
+        raise_on_failure=False)
 
     try:
       json.loads(stdout)

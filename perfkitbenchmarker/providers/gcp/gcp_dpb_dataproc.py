@@ -155,6 +155,21 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     # TODO(saksena): Retrieve the cluster create time and hold in a var
     cmd.Issue()
 
+  def _PostCreate(self):
+    """Get the cluster's data and tag it."""
+    cmd = util.GcloudCommand(
+        self, 'dataproc', 'clusters', 'describe', self.cluster_id)
+    stdout, _, _ = cmd.Issue()
+    config = json.loads(stdout)['config']
+    master = config['masterConfig']
+    worker = config['workerConfig']
+    for disk in master['instanceNames'] + worker['instanceNames']:
+      cmd = util.GcloudCommand(
+          self, 'compute', 'disks', 'add-labels', disk)
+      cmd.flags['labels'] = util.MakeFormattedDefaultTags()
+      cmd.flags['zone'] = self.dpb_service_zone
+      cmd.Issue()
+
   def append_region(self, cmd):
     region = self.dpb_service_zone.rsplit('-', 1)[0]
     cmd.flags['region'] = region
@@ -163,13 +178,13 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     """Deletes the cluster."""
     cmd = util.GcloudCommand(self, 'dataproc', 'clusters', 'delete',
                              self.cluster_id)
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Check to see whether the cluster exists."""
     cmd = util.GcloudCommand(self, 'dataproc', 'clusters', 'describe',
                              self.cluster_id)
-    _, _, retcode = cmd.Issue()
+    _, _, retcode = cmd.Issue(raise_on_failure=False)
     return retcode == 0
 
   def SubmitJob(self, jarfile, classname, pyspark_file=None, query_file=None,
@@ -205,7 +220,7 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     if job_arguments:
       cmd.additional_flags = ['--'] + job_arguments
 
-    stdout, stderr, retcode = cmd.Issue(timeout=None)
+    stdout, _, retcode = cmd.Issue(timeout=None, raise_on_failure=False)
     if retcode != 0:
       return {dpb_service.SUCCESS: False}
 
@@ -244,7 +259,7 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     job_arguments.extend(['-write', '-nrFiles', str(num_files), '-fileSize',
                           str(size_file)])
     cmd.additional_flags = ['--'] + job_arguments
-    stdout, stderr, retcode = cmd.Issue(timeout=None)
+    _, _, retcode = cmd.Issue(timeout=None, raise_on_failure=False)
     return {dpb_service.SUCCESS: retcode == 0}
 
   def read_data(self, source_dir, udpate_default_fs, num_files, size_file):
@@ -260,9 +275,8 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     job_arguments.extend(['-read', '-nrFiles', str(num_files), '-fileSize',
                           str(size_file)])
     cmd.additional_flags = ['--'] + job_arguments
-    stdout, stderr, retcode = cmd.Issue(timeout=None)
+    _, _, retcode = cmd.Issue(timeout=None, raise_on_failure=False)
     return {dpb_service.SUCCESS: retcode == 0}
-
 
   def distributed_copy(self, source_location, destination_location):
     """Method to copy data using a distributed job on the cluster."""
@@ -276,9 +290,8 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     job_arguments.extend([source_location, destination_location])
 
     cmd.additional_flags = ['--'] + job_arguments
-    stdout, stderr, retcode = cmd.Issue(timeout=None)
+    _, _, retcode = cmd.Issue(timeout=None, raise_on_failure=False)
     return {dpb_service.SUCCESS: retcode == 0}
-
 
   def cleanup_data(self, base_dir, udpate_default_fs):
     """Method to cleanup data using a distributed job on the cluster."""
@@ -292,7 +305,7 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     job_arguments.append('-Dtest.build.data={}'.format(base_dir))
     job_arguments.append('-clean')
     cmd.additional_flags = ['--'] + job_arguments
-    stdout, stderr, retcode = cmd.Issue(timeout=None)
+    _, _, retcode = cmd.Issue(timeout=None, raise_on_failure=False)
     if retcode != 0:
       return {dpb_service.SUCCESS: False}
     if udpate_default_fs:
