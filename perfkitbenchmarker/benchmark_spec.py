@@ -347,6 +347,8 @@ class BenchmarkSpec(object):
         group_spec.vm_spec.zone = zone_list[self._zone_index]
         self._zone_index = (self._zone_index + 1
                             if self._zone_index < len(zone_list) - 1 else 0)
+      if group_spec.cidr:  # apply cidr range to all vms in vm_group
+        group_spec.vm_spec.cidr = group_spec.cidr
       vm = self._CreateVirtualMachine(group_spec.vm_spec, os_type, cloud)
       if disk_spec and not vm.is_static:
         if disk_spec.disk_type == disk.LOCAL and disk_count is None:
