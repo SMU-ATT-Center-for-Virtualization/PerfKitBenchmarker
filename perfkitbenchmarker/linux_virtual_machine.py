@@ -162,6 +162,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     self._remote_command_script_upload_lock = threading.Lock()
     self._has_remote_command_script = False
     self._needs_reboot = False
+    self._lscpu_cache = None
 
   def _CreateVmTmpDir(self):
     self.RemoteCommand('mkdir -p %s' % vm_util.VM_TMP_DIR)
@@ -209,7 +210,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       command: The command to run.
       should_log: Whether to log the command's output at the info level. The
           output is always logged at the debug level.
-      timeout: The timeout for the command.
+      timeout: The timeout for the command in seconds.
       ignore_failure: Ignore any failure if set to true.
 
     Returns:
@@ -453,8 +454,10 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
 
   def CheckLsCpu(self):
     """Returns a LsCpuResults from the host VM."""
-    lscpu, _ = self.RemoteCommand('lscpu')
-    return LsCpuResults(lscpu)
+    if not self._lscpu_cache:
+      lscpu, _ = self.RemoteCommand('lscpu')
+      self._lscpu_cache = LsCpuResults(lscpu)
+    return self._lscpu_cache
 
   @property
   def os_info(self):
@@ -500,11 +503,6 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     self.os_metadata['kernel_release'] = self.kernel_release
     if FLAGS.append_kernel_command_line:
       self.os_metadata['kernel_command_line'] = self.kernel_command_line
-    self.os_metadata['cpu_family'] = lscpu_results.cpu_family
-    self.os_metadata['cpu_mhz'] = lscpu_results.cpu_mhz
-    self.os_metadata['cpu_model'] = lscpu_results.cpu_model
-    self.os_metadata['cpu_bogomips'] = lscpu_results.cpu_bogomips
-    self.os_metadata['cpu_vendor'] = lscpu_results.cpu_vendor
 
   @vm_util.Retry(log_errors=False, poll_interval=1)
   def VMLastBootTime(self):
@@ -1632,9 +1630,14 @@ class KernelRelease(object):
 
 class LsCpuResults(object):
   """Holds the contents of the command lscpu."""
+  # all rows in the lscpu output should look like "key:value"
+  _KEY_VALUE_RE = re.compile(r'^\s*(?P<key>.*?)\s*:\s*(?P<value>.*?)\s*$')
 
   def __init__(self, lscpu):
     """LsCpuResults Constructor.
+
+    The lscpu command on Ubuntu 16.04 does *not* have the "--json" option for
+    json output, so keep on using the text format.
 
     Args:
       lscpu: A string in the format of "lscpu" command
@@ -1665,62 +1668,23 @@ class LsCpuResults(object):
     L3 cache:              15360K
     NUMA node0 CPU(s):     0-11
     """
-    match = re.search(r'NUMA\ node\(s\):\s*(\d+)$', lscpu, re.MULTILINE)
-    if match:
-      self.numa_node_count = int(match.group(1))
-    else:
-      raise ValueError('NUMA Node(s) could not be found in lscpu value:\n%s' %
-                       lscpu)
-    # get more infos
-    # CPU MHz
-    match_mhz = re.search(r'CPU\ MHz:\s*(\d*\.\d+|\d+)$', lscpu, re.MULTILINE)
-    if match_mhz:
-      self.cpu_mhz = float(match_mhz.group(1))
-    else:
-      raise ValueError('CPU MHz could not be found in lscpu value:\n%s' %
-                       lscpu)
-    # Vendor ID
-    match_cpu_vendor = re.search(r'Vendor\ ID:\s*(\w+)$', lscpu, re.MULTILINE)
-    if match_cpu_vendor:
-      self.cpu_vendor = str(match_cpu_vendor.group(1))
-    else:
-      raise ValueError('CPU Vendor could not be found in lscpu value:\n%s' %
-                       lscpu)
-    # CPU family
-    match_cpu_family = re.search(r'CPU\ family:\s*(\d+)$', lscpu, re.MULTILINE)
-    if match_cpu_family:
-      self.cpu_family = int(match_cpu_family.group(1))
-    else:
-      raise ValueError('CPU family could not be found in lscpu value:\n%s' %
-                       lscpu)
-    # CPU Model
-    match_cpu_model = re.search(r'Model:\s*(\d+)$', lscpu, re.MULTILINE)
-    if match_cpu_model:
-      self.cpu_model = int(match_cpu_model.group(1))
-    else:
-      raise ValueError('CPU model could not be found in lscpu value:\n%s' %
-                       lscpu)
-    # BogoMIPS
-    match_cpu_bogomips = re.search(r'BogoMIPS:\s*(\d*\.\d+|\d+)$', lscpu, re.MULTILINE)
-    if match_cpu_bogomips:
-      self.cpu_bogomips = float(match_cpu_bogomips.group(1))
-    else:
-      raise ValueError('CPU bogomips could not be found in lscpu value:\n%s' %
-                       lscpu)
+    self.data = {}
+    for line in lscpu.splitlines():
+      m = self._KEY_VALUE_RE.match(line)
+      if m:
+        self.data[m.group('key')] = m.group('value')
+      else:
+        logging.debug('Ignoring bad lscpu line "%s"', line)
 
-    match = re.search(r'Core\(s\)\ per\ socket:\s*(\d+)$', lscpu, re.MULTILINE)
-    if match:
-      self.cores_per_socket = int(match.group(1))
-    else:
-      raise ValueError('Core(s) per socket could not be found in lscpu '
-                       'value:\n%s' % lscpu)
+    def GetInt(key):
+      if key in self.data and self.data[key].isdigit():
+        return int(self.data[key])
+      raise ValueError('Could not find integer "{}" in {}'.format(
+          key, sorted(self.data)))
 
-    match = re.search(r'Socket\(s\):\s*(\d+)$', lscpu, re.MULTILINE)
-    if match:
-      self.socket_count = int(match.group(1))
-    else:
-      raise ValueError('Socket(s) count could not be found in lscpu '
-                       'value:\n%s' % lscpu)
+    self.numa_node_count = GetInt('NUMA node(s)')
+    self.cores_per_socket = GetInt('Core(s) per socket')
+    self.socket_count = GetInt('Socket(s)')
 
 
 class JujuMixin(DebianMixin):
