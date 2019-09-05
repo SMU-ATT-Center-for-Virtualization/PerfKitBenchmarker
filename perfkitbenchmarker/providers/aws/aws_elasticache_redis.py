@@ -109,7 +109,7 @@ class ElastiCacheRedis(managed_memory_store.BaseManagedMemoryStore):
     cmd = ['aws', 'elasticache', 'delete-cache-subnet-group',
            '--region=%s' % self.redis_region,
            '--cache-subnet-group-name=%s' % self.subnet_group_name]
-    vm_util.IssueCommand(cmd)
+    vm_util.IssueCommand(cmd, raise_on_failure=False)
 
     if self.failover_subnet:
       self.failover_subnet.Delete()
@@ -138,14 +138,17 @@ class ElastiCacheRedis(managed_memory_store.BaseManagedMemoryStore):
 
     cmd += ['--tags']
     cmd += util.MakeFormattedDefaultTags()
-    vm_util.IssueCommand(cmd)
+    _, stderr, _ = vm_util.IssueCommand(cmd, raise_on_failure=False)
+
+    if 'InsufficientCacheClusterCapacity' in stderr:
+      raise errors.Benchmarks.InsufficientCapacityCloudFailure(stderr)
 
   def _Delete(self):
     """Deletes the cluster."""
     cmd = ['aws', 'elasticache', 'delete-replication-group',
            '--region', self.redis_region,
            '--replication-group-id', self.name]
-    vm_util.IssueCommand(cmd)
+    vm_util.IssueCommand(cmd, raise_on_failure=False)
 
   def _IsDeleting(self):
     """Returns True if cluster is being deleted and false otherwise."""
@@ -172,7 +175,7 @@ class ElastiCacheRedis(managed_memory_store.BaseManagedMemoryStore):
     cmd = ['aws', 'elasticache', 'describe-replication-groups',
            '--region', self.redis_region,
            '--replication-group-id', self.name]
-    stdout, stderr, retcode = vm_util.IssueCommand(cmd)
+    stdout, stderr, retcode = vm_util.IssueCommand(cmd, raise_on_failure=False)
     if retcode != 0:
       logging.info('Could not find cluster %s, %s', self.name, stderr)
       return {}

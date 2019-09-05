@@ -38,7 +38,6 @@ import logging
 
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import flags
-from perfkitbenchmarker import network
 from perfkitbenchmarker import nfs_service
 from perfkitbenchmarker import providers
 from perfkitbenchmarker import vm_util
@@ -74,7 +73,7 @@ class AwsNfsService(nfs_service.BaseNfsService):
 
   @property
   def network(self):
-    network_spec = network.BaseNetworkSpec(self.zone)
+    network_spec = aws_network.AwsNetworkSpec(self.zone)
     return aws_network.AwsNetwork.GetNetworkFromNetworkSpec(network_spec)
 
   @property
@@ -221,7 +220,7 @@ class AwsEfsCommands(object):
   def DeleteFiler(self, file_system_id):
     args = self.efs_prefix + [
         'delete-file-system', '--file-system-id', file_system_id]
-    _, stderr, retcode = vm_util.IssueCommand(args)
+    _, stderr, retcode = vm_util.IssueCommand(args, raise_on_failure=False)
     if retcode and 'FileSystemInUse' in stderr:
       raise Exception('Mount Point hasn\'t finished deleting.')
 
@@ -252,7 +251,7 @@ class AwsEfsCommands(object):
 
   def _IssueAwsCommand(self, args, return_json=True):
     args = self.efs_prefix + [str(arg) for arg in args]
-    stdout, _, retcode = vm_util.IssueCommand(args)
+    stdout, _, retcode = vm_util.IssueCommand(args, raise_on_failure=False)
     if retcode:
       return None
     return json.loads(stdout) if return_json else stdout

@@ -116,6 +116,12 @@ flags.DEFINE_integer('num_disable_cpus', None,
                      lower_bound=1)
 flags.DEFINE_integer('disk_fill_size', 0,
                      'Size of file to create in GBs.')
+flags.DEFINE_enum('disk_fs_type', _DEFAULT_DISK_FS_TYPE,
+                  [_DEFAULT_DISK_FS_TYPE, 'xfs'],
+                  'File system type used to format disk.')
+flags.DEFINE_integer(
+    'disk_block_size', None, 'Block size to format disk with.'
+    'Defaults to 4096 for ext4.')
 
 flags.DEFINE_bool(
     'enable_transparent_hugepages', None, 'Whether to enable or '
@@ -557,10 +563,20 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       return
     if disk.SMB == disk_type:
       return
-    fmt_cmd = ('[[ -d /mnt ]] && sudo umount /mnt; '
-               'sudo mke2fs -F -E lazy_itable_init=0,discard -O '
-               '^has_journal -t ext4 -b 4096 %s' % device_path)
-    self.RemoteHostCommand(fmt_cmd)
+    umount_cmd = '[[ -d /mnt ]] && sudo umount /mnt; '
+    # TODO(user): Allow custom disk formatting options.
+    if FLAGS.disk_fs_type == 'xfs':
+      block_size = FLAGS.disk_block_size or 512
+      fmt_cmd = ('sudo mkfs.xfs -f -i size={0} {1}'.format(
+          block_size, device_path))
+    else:
+      block_size = FLAGS.disk_block_size or 4096
+      fmt_cmd = ('sudo mke2fs -F -E lazy_itable_init=0,discard -O '
+                 '^has_journal -t ext4 -b {0} {1}'.format(
+                     block_size, device_path))
+    self.os_metadata['disk_filesystem_type'] = FLAGS.disk_fs_type
+    self.os_metadata['disk_filesystem_blocksize'] = block_size
+    self.RemoteHostCommand(umount_cmd + fmt_cmd)
 
   def MountDisk(self, device_path, mount_path, disk_type=None,
                 mount_options=disk.DEFAULT_MOUNT_OPTIONS,
@@ -574,7 +590,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       mount_options = '-t cifs %s' % mount_options
       fs_type = 'smb'
     else:
-      fs_type = _DEFAULT_DISK_FS_TYPE
+      fs_type = FLAGS.disk_fs_type
     fstab_options = fstab_options or ''
     mnt_cmd = ('sudo mkdir -p {mount_path};'
                'sudo mount {mount_options} {device_path} {mount_path} && '
@@ -630,7 +646,8 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     else:
       scp_cmd.extend([remote_location, file_path])
 
-    stdout, stderr, retcode = vm_util.IssueCommand(scp_cmd, timeout=None)
+    stdout, stderr, retcode = vm_util.IssueCommand(scp_cmd, timeout=None,
+                                                   raise_on_failure=False)
 
     if retcode:
       full_cmd = ' '.join(scp_cmd)
@@ -726,7 +743,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
         stdout, stderr, retcode = vm_util.IssueCommand(
             ssh_cmd, force_info_log=should_log,
             suppress_warning=suppress_warning,
-            timeout=timeout)
+            timeout=timeout, raise_on_failure=False)
         if retcode != 255:  # Retry on 255 because this indicates an SSH failure
           break
     finally:

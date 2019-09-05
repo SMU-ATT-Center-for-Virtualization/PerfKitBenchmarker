@@ -22,7 +22,6 @@ import logging
 from perfkitbenchmarker import dpb_service
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import flags
-from perfkitbenchmarker import network
 from perfkitbenchmarker import providers
 from perfkitbenchmarker import resource
 from perfkitbenchmarker import vm_util
@@ -37,8 +36,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('dpb_emr_release_label', 'emr-5.23.0',
                     'The emr version to use for the cluster.')
 
-SPARK_SAMPLE_LOCATION = ('file:///usr/lib/spark/examples/jars/'
-                         'spark-examples.jar')
+SPARK_SAMPLE_LOCATION = 'file:///usr/lib/spark/examples/jars/spark-examples.jar'
 
 INVALID_STATES = ['TERMINATED_WITH_ERRORS', 'TERMINATED']
 READY_CHECK_SLEEP = 30
@@ -80,12 +78,12 @@ class AwsSecurityGroup(resource.BaseResource):
   def _Delete(self):
     cmd = self.cmd_prefix + ['ec2', 'delete-security-group',
                              '--group-id=' + self.group_id]
-    vm_util.IssueCommand(cmd)
+    vm_util.IssueCommand(cmd, raise_on_failure=False)
 
   def _Exists(self):
     cmd = self.cmd_prefix + ['ec2', 'describe-security-groups',
                              '--group-id=' + self.group_id]
-    _, _, retcode = vm_util.IssueCommand(cmd)
+    _, _, retcode = vm_util.IssueCommand(cmd, raise_on_failure=False)
     # if the security group doesn't exist, the describe command gives an error.
     return retcode == 0
 
@@ -115,7 +113,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
       region = util.GetRegionFromZone(self.dpb_service_zone)
       self.cmd_prefix += ['--region', region]
       self.network = aws_network.AwsNetwork.GetNetworkFromNetworkSpec(
-          network.BaseNetworkSpec(zone=self.dpb_service_zone))
+          aws_network.AwsNetworkSpec(zone=self.dpb_service_zone))
     else:
       raise errors.Setup.InvalidSetupError(
           'dpb_service_zone must be provided, for provisioning.')
@@ -129,8 +127,8 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
   def _CreateLogBucket(self):
     bucket_name = 's3://pkb-{0}-emr'.format(FLAGS.run_uri)
     cmd = self.cmd_prefix + ['s3', 'mb', bucket_name]
-    _, _, rc = vm_util.IssueCommand(cmd)
-    if rc != 0:
+    _, _, retcode = vm_util.IssueCommand(cmd, raise_on_failure=False)
+    if retcode != 0:
       raise Exception('Error creating logs bucket')
     self.bucket_to_delete = bucket_name
     return bucket_name
@@ -151,8 +149,8 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
           {'VolumeSpecification': {
               'SizeInGB': self.spec.worker_group.disk_spec.disk_size,
               'VolumeType': self.spec.worker_group.disk_spec.disk_type},
-              'VolumesPerInstance':
-                  self.spec.worker_group.disk_spec.num_striped_disks}]}
+           'VolumesPerInstance':
+               self.spec.worker_group.disk_spec.num_striped_disks}]}
       self.dpb_hdfs_type = disk_to_hdfs_map[
           self.spec.worker_group.disk_spec.disk_type]
 
@@ -244,7 +242,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
                                       'terminate-clusters',
                                       '--cluster-ids',
                                       self.cluster_id]
-      vm_util.IssueCommand(delete_cmd)
+      vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _DeleteDependencies(self):
     if self.network:
@@ -262,8 +260,8 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
                              'describe-cluster',
                              '--cluster-id',
                              self.cluster_id]
-    stdout, _, rc = vm_util.IssueCommand(cmd)
-    if rc != 0:
+    stdout, _, retcode = vm_util.IssueCommand(cmd, raise_on_failure=False)
+    if retcode != 0:
       return False
     result = json.loads(stdout)
     if result['Cluster']['Status']['State'] in INVALID_STATES:
@@ -277,11 +275,10 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
     cmd = self.cmd_prefix + ['emr',
                              'describe-cluster', '--cluster-id',
                              self.cluster_id]
-    stdout, _, rc = vm_util.IssueCommand(cmd)
+    stdout, _, _ = vm_util.IssueCommand(cmd)
     result = json.loads(stdout)
     # TODO(saksena): Handle error outcomees when spinning up emr clusters
     return result['Cluster']['Status']['State'] == READY_STATE
-
 
   def _IsStepDone(self, step_id):
     """Determine whether the step is done.
@@ -375,7 +372,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
   def CreateBucket(self, source_bucket):
     mb_cmd = self.cmd_prefix + ['s3', 'mb', '{}{}'.format(
         self.PERSISTENT_FS_PREFIX, source_bucket)]
-    stdout, _, _ = vm_util.IssueCommand(mb_cmd)
+    _, _, _ = vm_util.IssueCommand(mb_cmd)
 
   def generate_data(self, source_dir, udpate_default_fs, num_files,
                     size_file):
@@ -466,7 +463,6 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
     else:
       return {dpb_service.SUCCESS: True}
 
-
   def distributed_copy(self, source_location, destination_location):
     """Method to copy data using a distributed job on the cluster."""
     @vm_util.Retry(timeout=EMR_TIMEOUT,
@@ -535,8 +531,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
     jar_spec = GENERATE_HADOOP_JAR
 
     # How will we handle a class name ????
-    step_list = [step_type_spec, step_name, step_action_on_failure, jar_spec
-                 ]
+    step_list = [step_type_spec, step_name, step_action_on_failure, jar_spec]
     step_list.append('Args=' + arg_spec)
     step_string = ','.join(step_list)
 

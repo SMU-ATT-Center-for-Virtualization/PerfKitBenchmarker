@@ -23,6 +23,7 @@ Compared to hbase_ycsb, this benchmark:
   * Adds netty-tcnative-boringssl, used for communication with Bigtable.
 """
 
+import datetime
 import json
 import logging
 import os
@@ -30,6 +31,7 @@ import pipes
 import posixpath
 import subprocess
 
+import numpy
 from perfkitbenchmarker import configs
 from perfkitbenchmarker import data
 from perfkitbenchmarker import flags
@@ -61,6 +63,14 @@ flags.DEFINE_string(
         HBASE_CLIENT_VERSION,
         BIGTABLE_CLIENT_VERSION),
     'URL for the Bigtable-HBase client JAR.')
+flags.DEFINE_boolean('get_bigtable_cluster_cpu_utilization', False,
+                     'If true, will gather bigtable cluster cpu utilization '
+                     'for the duration of performance test run stage, and add '
+                     'it to the metadata of relevant metrics. To enable this '
+                     'functionality, need to set environment variable '
+                     'GOOGLE_APPLICATION_CREDENTIALS as described in '
+                     'https://cloud.google.com/docs/authentication/'
+                     'getting-started.')
 
 BENCHMARK_NAME = 'cloud_bigtable_ycsb'
 BENCHMARK_CONFIG = """
@@ -79,14 +89,16 @@ cloud_bigtable_ycsb:
 
 # Starting from version 1.4.0, there is no need to install a separate boring ssl
 # via TCNATIVE_BORINGSSL_URL.
-TCNATIVE_BORINGSSL_URL = (
-    'http://search.maven.org/remotecontent?filepath='
-    'io/netty/netty-tcnative-boringssl-static/'
-    '1.1.33.Fork13/'
+TCNATIVE_BORINGSSL_JAR = (
     'netty-tcnative-boringssl-static-1.1.33.Fork13-linux-x86_64.jar')
-DROPWIZARD_METRICS_CORE_URL = (
-    'http://search.maven.org/remotecontent?filepath='
-    'io/dropwizard/metrics/metrics-core/3.1.2/metrics-core-3.1.2.jar')
+TCNATIVE_BORINGSSL_URL = posixpath.join(
+    'https://search.maven.org/remotecontent?filepath='
+    'io/netty/netty-tcnative-boringssl-static/'
+    '1.1.33.Fork13/', TCNATIVE_BORINGSSL_JAR)
+METRICS_CORE_JAR = 'metrics-core-3.1.2.jar'
+DROPWIZARD_METRICS_CORE_URL = posixpath.join(
+    'https://search.maven.org/remotecontent?filepath='
+    'io/dropwizard/metrics/metrics-core/3.1.2/', METRICS_CORE_JAR)
 HBASE_SITE = 'cloudbigtable/hbase-site.xml.j2'
 HBASE_CONF_FILES = [HBASE_SITE]
 HBASE_BINDING = 'hbase10-binding'
@@ -99,6 +111,19 @@ REQUIRED_SCOPES = (
 
 # TODO(connormccoy): Make table parameters configurable.
 COLUMN_FAMILY = 'cf'
+BENCHMARK_DATA = {
+    METRICS_CORE_JAR:
+        '245ba2a66a9bc710ce4db14711126e77bcb4e6d96ef7e622659280f3c90cbb5c',
+    TCNATIVE_BORINGSSL_JAR:
+        '027d87e77a08dedf2005d9333db49aa37e08d599aff64ea18da9893912bdf314'
+}
+BENCHMARK_DATA_URL = {
+    METRICS_CORE_JAR: DROPWIZARD_METRICS_CORE_URL,
+    TCNATIVE_BORINGSSL_JAR: TCNATIVE_BORINGSSL_URL
+}
+
+# Used to get bigtable cluster cpu utilization at different percentiles.
+CPU_UTILIZATION_PERCENTILES = [80, 90, 95, 99]
 
 
 def GetConfig(user_config):
@@ -197,15 +222,19 @@ def _Install(vm):
                    'pkb-bigtable-{0}'.format(FLAGS.run_uri))
   hbase_lib = posixpath.join(hbase.HBASE_DIR, 'lib')
 
-  urls = [FLAGS.google_bigtable_hbase_jar_url, TCNATIVE_BORINGSSL_URL]
+  preprovisioned_pkgs = [TCNATIVE_BORINGSSL_JAR]
   if 'hbase-1.x' in FLAGS.google_bigtable_hbase_jar_url:
-    urls.append(DROPWIZARD_METRICS_CORE_URL)
+    preprovisioned_pkgs.append(METRICS_CORE_JAR)
+  vm.InstallPreprovisionedBenchmarkData(
+      BENCHMARK_NAME, preprovisioned_pkgs, YCSB_HBASE_LIB)
+  vm.InstallPreprovisionedBenchmarkData(
+      BENCHMARK_NAME, preprovisioned_pkgs, hbase_lib)
 
-  for url in urls:
-    jar_name = os.path.basename(url)
-    jar_path = posixpath.join(YCSB_HBASE_LIB, jar_name)
-    vm.RemoteCommand('curl -Lo {0} {1}'.format(jar_path, url))
-    vm.RemoteCommand('cp {0} {1}'.format(jar_path, hbase_lib))
+  url = FLAGS.google_bigtable_hbase_jar_url
+  jar_name = os.path.basename(url)
+  jar_path = posixpath.join(YCSB_HBASE_LIB, jar_name)
+  vm.RemoteCommand('curl -Lo {0} {1}'.format(jar_path, url))
+  vm.RemoteCommand('cp {0} {1}'.format(jar_path, hbase_lib))
 
   vm.RemoteCommand('echo "export JAVA_HOME=/usr" >> {0}/hbase-env.sh'.format(
       hbase.HBASE_CONF_DIR))
@@ -226,6 +255,67 @@ def _Install(vm):
       vm.RenderTemplate(file_path, os.path.splitext(remote_path)[0], context)
     else:
       vm.RemoteCopy(file_path, remote_path)
+
+
+def _AddCpuUtilization(samples, instance_id):
+  """Add cpu utilization to the metadata of relevant metric samples.
+
+  Note that the utilization only covers the run stage.
+
+  Args:
+    samples: list of sample.Sample. The expected ordering is: (1) table loading
+      metrics, (2) table read/write metrics.
+    instance_id: the bigtable instance id.
+
+  Returns:
+    a list of updated sample.Sample.
+  """
+  # Check the pre-requisite
+  if (len(samples) < 2 or
+      samples[0].metadata.get('stage') != 'load' or
+      samples[-1].metadata.get('stage') != 'run'):
+    return None
+
+  # pylint: disable=g-import-not-at-top
+  from google.cloud import monitoring_v3
+  from google.cloud.monitoring_v3 import query
+
+  # Query the cpu utilization, which are gauged values at each minute in the
+  # time window.
+  client = monitoring_v3.MetricServiceClient()
+  start_timestamp = samples[0].timestamp
+  end_timestamp = samples[-1].timestamp
+  cpu_query = query.Query(
+      client, project=(FLAGS.project or _GetDefaultProject()),
+      metric_type='bigtable.googleapis.com/cluster/cpu_load',
+      end_time=datetime.datetime.utcfromtimestamp(end_timestamp),
+      minutes=int((end_timestamp - start_timestamp) / 60))
+  cpu_query = cpu_query.select_resources(instance=instance_id)
+  time_series = list(cpu_query)
+  if not time_series:
+    return None
+
+  # Build the dict to be added to samples.
+  utilization_data = []
+  for cluster_number, cluster_time_series in enumerate(time_series):
+    utilization = numpy.array(
+        [point.value.double_value for point in cluster_time_series.points])
+
+    for percentile in CPU_UTILIZATION_PERCENTILES:
+      utilization_data.append(
+          {'cluster_number': cluster_number,
+           'percentile': percentile,
+           'utilization_percentage': (
+               '%.2f' % (numpy.percentile(utilization, percentile) * 100))})
+
+  additional_metadata = {'cpu_utilization': json.dumps(utilization_data)}
+
+  # Update the samples.
+  for sample in samples:
+    if sample.metadata.get('stage') == 'run':
+      sample.metadata.update(additional_metadata)
+
+  return samples
 
 
 def Prepare(benchmark_spec):
@@ -315,6 +405,10 @@ def Run(benchmark_spec):
       vms, load_kwargs=load_kwargs, run_kwargs=run_kwargs))
   for sample in samples:
     sample.metadata.update(metadata)
+
+  # Optionally add new samples for cluster cpu utilization.
+  if FLAGS.get_bigtable_cluster_cpu_utilization:
+    samples = _AddCpuUtilization(samples, instance_name)
 
   return samples
 
