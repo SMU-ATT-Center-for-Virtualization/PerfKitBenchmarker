@@ -46,7 +46,7 @@ NETPERF_SRC_DIR = NETPERF_DIR + '/src'
 NETSERVER_PATH = NETPERF_SRC_DIR + '/netserver'
 NETPERF_PATH = NETPERF_SRC_DIR + '/netperf'
 NETLIB_PATCH = NETPERF_SRC_DIR + '/netperf.patch'
-NETPERF_EXAMPLE_DIR = NETPERF_DIR + '/doc/examples'
+NETPERF_EXAMPLE_DIR = NETPERF_DIR + '/doc/examples/'
 
 
 def _Install(vm):
@@ -58,10 +58,10 @@ def _Install(vm):
   if(FLAGS.netperf_use_newest_git):
     _LoadNetperf(vm)
 
-    vm.RemoteCommand('cd %s && CFLAGS=-DHIST_NUM_OF_BUCKET=%s '
+    vm.RemoteCommand('cd %s && '
                      './autogen.sh &&'
                      './configure --enable-burst --enable-demo --enable-histogram '
-                     '&& make && sudo make install' % (NETPERF_DIR, FLAGS.netperf_histogram_buckets))
+                     '&& make && sudo make install' % (NETPERF_DIR))
 
     vm.RemoteCommand('cd %s && chmod +x runemomniaggdemo.sh find_max_burst.sh' 
                      % (NETPERF_EXAMPLE_DIR))
@@ -71,14 +71,12 @@ def _Install(vm):
     vm.PushDataFile('netperf.patch', NETLIB_PATCH)
     vm.RemoteCommand('cd %s && patch -p2 < netperf.patch' %
                      NETPERF_SRC_DIR)
-
   # Modify netperf to print out all buckets in its histogram rather than
   # aggregating.
-
-  vm.RemoteCommand('cd %s && CFLAGS=-DHIST_NUM_OF_BUCKET=%s '
-                   './autogen.sh &&'
-                   './configure --enable-histogram '
-                   '&& make && sudo make install' % (NETPERF_DIR, FLAGS.netperf_histogram_buckets))
+    vm.RemoteCommand('cd %s && CFLAGS=-DHIST_NUM_OF_BUCKET=%s '
+                     './autogen.sh &&'
+                     './configure --enable-histogram '
+                     '&& make && sudo make install' % (NETPERF_DIR, FLAGS.netperf_histogram_buckets))
 
 def _LoadNetperf(vm):
   vm.Install('curl')

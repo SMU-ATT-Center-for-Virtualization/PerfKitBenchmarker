@@ -81,7 +81,7 @@ OUTPUT_SELECTOR = (
 PORT_START = 12865
 
 REMOTE_SCRIPTS_DIR = 'netperf_test_scripts'
-REMOTE_SCRIPT = 'netperf_test.py'
+REMOTE_SCRIPT = 'runemomniaggdemo.sh'
 
 PERCENTILES = [50, 90, 99]
 
@@ -130,39 +130,45 @@ def PrepareNetperf(vm):
   # PORT_END = PORT_START * 2 - 1
   PORT_END = PORT_START
 
-  if vm.image and re.search(_COS_RE, vm.image):
-    _SetupHostFirewall(benchmark_spec)
-
   if vm_util.ShouldRunOnExternalIpAddress():
     vm.AllowPort(PORT_START, PORT_END)
 
-  netserver_cmd = ('for i in $(seq {port_start} 2 {port_end}); do '
-                   '{netserver_path} -p $i & done').format(
+  netserver_cmd = ('{netserver_path} -p {port_start}').format(
                        port_start=PORT_START,
-                       port_end=PORT_END,
                        netserver_path=netperf.NETSERVER_PATH)
   vm.RemoteCommand(netserver_cmd)
 
+  # logging.info("INPUT TO CONTINUE")
+  # lol = raw_input()
+
   path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
+  remote_path = netperf.NETPERF_EXAMPLE_DIR + REMOTE_SCRIPT
   logging.info('Uploading %s to %s', path, vm)
-  vm.PushFile(path, REMOTE_SCRIPT)
-  vm.RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
+  vm.PushFile(source_path=path, remote_path=remote_path)
+  vm.RemoteCommand('chmod +x %s' % (remote_path))
 
-  vm.RemoteCommand("cd %s && sed 's/DO_STREAM=1;/DO_STREAM=0;/g' runemomniaggdemo.sh "
-                   "&& sed -i 's/DO_STREAM=1;/DO_STREAM=0;/g' runemomniaggdemo.sh "
-                   "&& sed -i 's/DO_MAERTS=1;/DO_MAERTS=0;/g' runemomniaggdemo.sh "
-                   "&& sed -i 's/DO_BIDIR=1;/DO_BIDIR=0;/g' runemomniaggdemo.sh "
-                   "&& sed -i 's/DO_RR=1;/DO_RR=0;/g' runemomniaggdemo.sh "
-                   "&& sed -i 's/DO_ANCILLARY=1;/DO_ANCILLARY=0;/g' runemomniaggdemo.sh " 
-                   "&& sed -i 's/DURATION=120/DURATION=60/g' runemomniaggdemo.sh " 
-                   % (netperf.NETPERF_EXAMPLE_DIR))
+  # vm.RemoteCommand("cd %s && rm runemomniaggdemo.sh "
+  #                  "&& sed -i 's/DO_STREAM=1;/DO_STREAM=0;/g' runemomniaggdemo.sh "
+  #                  "&& sed -i 's/DO_MAERTS=1;/DO_MAERTS=0;/g' runemomniaggdemo.sh "
+  #                  "&& sed -i 's/DO_BIDIR=1;/DO_BIDIR=0;/g' runemomniaggdemo.sh "
+  #                  "&& sed -i 's/DO_RR=1;/DO_RR=0;/g' runemomniaggdemo.sh "
+  #                  "&& sed -i 's/DO_ANCILLARY=1;/DO_ANCILLARY=0;/g' runemomniaggdemo.sh " 
+  #                  "&& sed -i 's/DURATION=120/DURATION=60/g' runemomniaggdemo.sh "
+  #                  % (netperf.NETPERF_EXAMPLE_DIR))
 
+
+  # vm.RemoteCommand("cd %s sed -i '/pkill -ALRM netperf/a\ \ \ \ \ NETPERF_PROC=$\(pgrep\ -P\ 1\ -f\ netperf\)\n\ \ \ \ \ \[\ !\ -z\ \\x22$NETPERF_PROC\\x22\ \]\ ||\ kill\ \$NETPERF_PROC' runemomniaggdemo.sh")
+  # vm.RemoteCommand("cd %s sed -i '/pkill -ALRM netperf/a\ \ \ \ \ NETPERF_PROC=$(pgrep -P 1 -f netperf)' runemomniaggdemo.sh"
+  #                  % (netperf.NETPERF_EXAMPLE_DIR))
+
+  # logging.info("INPUT TO CONTINUE 2")
+  # lol = raw_input()
   # vm.RemoteCommand('cd %s && CFLAGS=-DHIST_NUM_OF_BUCKET=%s '
   #                  './autogen.sh'
   #                  './configure --enable-burst --enable-demo --enable-histogram=yes '
   #                  '&& make' % (NETPERF_DIR, FLAGS.netperf_histogram_buckets))
 
-
+ 
 #SETUP
 # src/netserver # start the netserver on the load generator systems
 # On the system to be the one under test, cd to  doc/examples/ in the netperf source tree
@@ -171,7 +177,7 @@ def PrepareNetperf(vm):
 # Edit runemomniaggdemo.sh to:
 # Enable aggregate Transactions Per Second (tps) tests - DO_RRAGG set to '1'
 # Disable the other tests - DO_mumble set to '0'
-def Prepare(benchmark_spec):
+def Prepare(benchmark_spec): 
   """Install netperf on the target vm.
 
   Args:
@@ -179,36 +185,11 @@ def Prepare(benchmark_spec):
         required to run the benchmark.
   """
 
-  logging.info("INPUT TO CONTINUE")
-  lol = raw_input()
-
-  
   logging.info("RUNNING NETPERF Prepare")
   vms = benchmark_spec.vms
   vms = vms[:3]
   vm_util.RunThreaded(PrepareNetperf, vms)
 
-  # See comments where _COS_RE is defined.
-  # if vms[1].image and re.search(_COS_RE, vms[1].image):
-  #   _SetupHostFirewall(benchmark_spec)
-
-  # Start the netserver processes
-  # if vm_util.ShouldRunOnExternalIpAddress():
-  #   # Open all of the command and data ports
-  #   vms[1].AllowPort(PORT_START, PORT_START + num_streams * 2 - 1)
-
-  # netserver_cmd = ('for i in $(seq {port_start} 2 {port_end}); do '
-  #                  '{netserver_path} -p $i & done').format(
-  #                      port_start=PORT_START,
-  #                      port_end=PORT_START + num_streams * 2 - 1,
-  #                      netserver_path=netperf.NETSERVER_PATH)
-  # vms[1].RemoteCommand(netserver_cmd)
-
-  # Copy remote test script to client
-  # path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
-  # logging.info('Uploading %s to %s', path, vms[0])
-  # vms[0].PushFile(path, REMOTE_SCRIPT)
-  # vms[0].RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
 
 
 
@@ -236,8 +217,7 @@ def _SetupHostFirewall(benchmark_spec):
       server_vm.RemoteHostCommand(cmd % (protocol, ip_addr))
 
 
-def ParseNetperfAggregateOutput(stdout, metadata, benchmark_name,
-                       enable_latency_histograms):
+def ParseNetperfAggregateOutput(stdout, metadata, benchmark_name):
   """Parses the stdout of a single netperf process.
 
   Args:
@@ -248,86 +228,42 @@ def ParseNetperfAggregateOutput(stdout, metadata, benchmark_name,
     A tuple containing (throughput_sample, latency_samples, latency_histogram)
   """
   # Don't modify the metadata dict that was passed in
+
+
+# Average of peak interval is 460995.000 Trans/s from 1566458404 to 1566458464
+# Minimum of peak interval is 395865.170 Trans/s from 1566458404 to 1566458464
+# Maximum of peak interval is 472895.650 Trans/s from 1566458404 to 1566458464
+# Average of interval 0 is 178040.310 Trans/s from 1566458216 to 1566458274
+# Minimum of interval 0 is 166044.680 Trans/s from 1566458216 to 1566458274
+# Maximum of interval 0 is 194732.110 Trans/s from 1566458216 to 1566458274
+# Average of interval 1 is 345184.870 Trans/s from 1566458277 to 1566458335
+# Minimum of interval 1 is 325173.210 Trans/s from 1566458277 to 1566458335
+# Maximum of interval 1 is 359809.360 Trans/s from 1566458277 to 1566458335
+# Average of interval 2 is 458888.190 Trans/s from 1566458339 to 1566458397
+# Minimum of interval 2 is 444407.520 Trans/s from 1566458339 to 1566458397
+# Maximum of interval 2 is 470984.490 Trans/s from 1566458339 to 1566458397
+# Average of interval 3 is 460995.000 Trans/s from 1566458404 to 1566458464
+# Minimum of interval 3 is 395865.170 Trans/s from 1566458404 to 1566458464
+# Maximum of interval 3 is 472895.650 Trans/s from 1566458404 to 1566458464
+
   metadata = metadata.copy()
+  aggregate_samples = []
 
-  # Extract stats from stdout
-  # Sample output:
-  #
-  # "MIGRATED TCP REQUEST/RESPONSE TEST from 0.0.0.0 (0.0.0.0) port 20001
-  # AF_INET to 104.154.50.86 () port 20001 AF_INET : +/-2.500% @ 99% conf.
-  # : first burst 0",\n
-  # Throughput,Throughput Units,Throughput Confidence Width (%),
-  # Confidence Iterations Run,Stddev Latency Microseconds,
-  # 50th Percentile Latency Microseconds,90th Percentile Latency Microseconds,
-  # 99th Percentile Latency Microseconds,Minimum Latency Microseconds,
-  # Maximum Latency Microseconds\n
-  # 1405.50,Trans/s,2.522,4,783.80,683,735,841,600,900\n
-  try:
-    fp = io.StringIO(stdout)
-    # "-o" flag above specifies CSV output, but there is one extra header line:
-    banner = next(fp)
-    assert banner.startswith('MIGRATED'), stdout
-    r = csv.DictReader(fp)
-    results = next(r)
-    logging.info('Netperf Results: %s', results)
-    assert 'Throughput' in results
-  except:
-    raise Exception('Netperf ERROR: Failed to parse stdout. STDOUT: %s' %
-                    stdout)
+  for line in stdout.splitlines():
+    print(line)
+    match = re.search('peak interval', line)
+    if match:
+      line_split = line.split()
+      print(line_split)
+      metric = line_split[0] + ' ' + line_split[6]
+      value = line_split[5]
+      unit = line_split[6]
+      print(metric)
+      print(value)
+      aggregate_samples.append(sample.Sample(
+              metric, value, unit, metadata))
 
-  # Update the metadata with some additional infos
-  meta_keys = [('Confidence Iterations Run', 'confidence_iter'),
-               ('Throughput Confidence Width (%)', 'confidence_width_percent')]
-  if 'TCP' in benchmark_name:
-    meta_keys.extend([
-        ('Local Transport Retransmissions', 'netperf_retransmissions'),
-        ('Remote Transport Retransmissions', 'netserver_retransmissions'),
-    ])
-
-  metadata.update({meta_key: results[netperf_key]
-                   for netperf_key, meta_key in meta_keys})
-
-  # Create the throughput sample
-  throughput = float(results['Throughput'])
-  throughput_units = results['Throughput Units']
-  if throughput_units == '10^6bits/s':
-    # TCP_STREAM benchmark
-    unit = MBPS
-    metric = '%s_Throughput' % benchmark_name
-  elif throughput_units == 'Trans/s':
-    # *RR benchmarks
-    unit = TRANSACTIONS_PER_SECOND
-    metric = '%s_Transaction_Rate' % benchmark_name
-  else:
-    raise ValueError('Netperf output specifies unrecognized throughput units %s'
-                     % throughput_units)
-  throughput_sample = sample.Sample(metric, throughput, unit, metadata)
-
-  latency_hist = None
-  latency_samples = []
-  if enable_latency_histograms:
-    # Parse the latency histogram. {latency: count} where "latency" is the
-    # latency in microseconds with only 2 significant figures and "count" is the
-    # number of response times that fell in that latency range.
-    latency_hist = netperf.ParseHistogram(stdout)
-    hist_metadata = {'histogram': json.dumps(latency_hist)}
-    hist_metadata.update(metadata)
-    latency_samples.append(sample.Sample(
-        '%s_Latency_Histogram' % benchmark_name, 0, 'us', hist_metadata))
-  if unit != MBPS:
-    for metric_key, metric_name in [
-        ('50th Percentile Latency Microseconds', 'p50'),
-        ('90th Percentile Latency Microseconds', 'p90'),
-        ('99th Percentile Latency Microseconds', 'p99'),
-        ('Minimum Latency Microseconds', 'min'),
-        ('Maximum Latency Microseconds', 'max'),
-        ('Stddev Latency Microseconds', 'stddev')]:
-      if metric_key in results:
-        latency_samples.append(
-            sample.Sample('%s_Latency_%s' % (benchmark_name, metric_name),
-                          float(results[metric_key]), 'us', metadata))
-
-  return (throughput_sample, latency_samples, latency_hist)
+  return aggregate_samples
 
 
 def RunNetperf(vm, benchmark_name, server1_ip, server2_ip):
@@ -357,9 +293,9 @@ def RunNetperf(vm, benchmark_name, server1_ip, server2_ip):
 # ./post_proc.py --intervals netperf_tps.log # script relies on python_rrdtool
 # Enjoy the results.  There will also be a chart in "netperf_tsp_overall.svg" for those who prefer pictures over text
   
-  vm.RemoteCommand("cd %s && echo REMOTE_HOSTS[0]=%s > remote_hosts && "
-                   "echo REMOTE_HOSTS[1]=%s >> remote_hosts && "
-                   "echo NUM_REMOTE_HOSTS=2 >> remote_hosts"
+  vm.RemoteCommand("cd %s && echo 'REMOTE_HOSTS[0]=%s' > remote_hosts && "
+                   "echo 'REMOTE_HOSTS[1]=%s' >> remote_hosts && "
+                   "echo 'NUM_REMOTE_HOSTS=2' >> remote_hosts"
                    % (netperf.NETPERF_EXAMPLE_DIR, server1_ip, server2_ip))
 
   # vm.RemoteCommand('sudo su')
@@ -369,108 +305,29 @@ def RunNetperf(vm, benchmark_name, server1_ip, server2_ip):
   stdout,_ = vm.RemoteCommand('cd %s && cat remote_hosts' % (netperf.NETPERF_EXAMPLE_DIR))
   logging.info(stdout)
 
+  # logging.info("INPUT TO CONTINUE")
+  # lol = raw_input()
 
-                                      # command,
-                                      # should_log=False,
-                                      # retries=None,
-                                      # ignore_failure=False,
-                                      # login_shell=False,
-                                      # suppress_warning=False,
-                                      # timeout=None
-
-  logging.info("INPUT TO CONTINUE")
-  lol = raw_input()
-
-  vm.RemoteCommand("cd %s && export PATH=$PATH:. && ./runemomniaggdemo.sh" % (netperf.NETPERF_EXAMPLE_DIR), should_log=True, login_shell=True, timeout=1200)
+  stdout, stderr = vm.RemoteCommand("cd %s && export PATH=$PATH:. && chmod +x runemomniaggdemo.sh && ./runemomniaggdemo.sh" % (netperf.NETPERF_EXAMPLE_DIR),
+                                    ignore_failure=True, should_log=True, login_shell=False, timeout=1200)
   # vm.RobustRemoteCommand("cd %s && ./runemomniaggdemo.sh" % (netperf.NETPERF_EXAMPLE_DIR), should_log=True, timeout=1200,
   #                         ignore_failure=False)
 
-  remote_stdout, _ = vm.RemoteCommand("cd %s && ./post_proc.py --intervals netperf_tps.log" % (netperf.NETPERF_EXAMPLE_DIR))
+
+  logging.info(stdout)
+  logging.info(stderr)
+
+  remote_stdout, _ = vm.RemoteCommand("cd %s && ./post_proc.py --intervals netperf_tps.log" % (netperf.NETPERF_EXAMPLE_DIR),
+                                      ignore_failure=True)
 
   logging.info(remote_stdout)
 
     # Metadata to attach to samples
-  metadata = {'number_of_hosts': 3,
-              'netperf_test_length_unit': 'transactions',
-              'max_iter': 1}
+  metadata = {'number_of_hosts': 3}
 
-  # if FLAGS.netperf_thinktime != 0:
-  #   netperf_cmd += (' -X {thinktime},{thinktime_array_size},'
-  #                   '{thinktime_run_length} ').format(
-  #                       thinktime=FLAGS.netperf_thinktime,
-  #                       thinktime_array_size=FLAGS.netperf_thinktime_array_size,
-  #                       thinktime_run_length=FLAGS.netperf_thinktime_run_length)
+  samples = ParseNetperfAggregateOutput(stdout, metadata, benchmark_name)           
 
-  # Run all of the netperf processes and collect their stdout
-  # TODO: Record process start delta of netperf processes on the remote machine
-
-  # Give the remote script the max possible test length plus 5 minutes to
-  # complete
-  
-  # remote_cmd = ('./%s --netperf_cmd="%s" --num_streams=%s --port_start=%s' %
-  #               (REMOTE_SCRIPT, netperf_cmd, num_streams, PORT_START))
-  # remote_stdout, _ = vm.RobustRemoteCommand(remote_cmd, should_log=True,
-  #                                           timeout=remote_cmd_timeout)
-
-  # Decode stdouts, stderrs, and return codes from remote command's stdout
-  json_out = json.loads(remote_stdout)
-  stdouts = json_out[0]
-
-  
-
-  parsed_output = [ParseNetperfOutput(stdout, metadata, benchmark_name,
-                                      enable_latency_histograms)
-                   for stdout in stdouts]
-
-  if len(parsed_output) == 1:
-    # Only 1 netperf thread
-    throughput_sample, latency_samples, histogram = parsed_output[0]
-    return [throughput_sample] + latency_samples
-  else:
-    # Multiple netperf threads
-
-    samples = []
-
-    # Unzip parsed output
-    # Note that latency_samples are invalid with multiple threads because stats
-    # are computed per-thread by netperf, so we don't use them here.
-    throughput_samples, _, latency_histograms = [list(t)
-                                                 for t in zip(*parsed_output)]
-    # They should all have the same units
-    throughput_unit = throughput_samples[0].unit
-    # Extract the throughput values from the samples
-    throughputs = [s.value for s in throughput_samples]
-    # Compute some stats on the throughput values
-    throughput_stats = sample.PercentileCalculator(throughputs, [50, 90, 99])
-    throughput_stats['min'] = min(throughputs)
-    throughput_stats['max'] = max(throughputs)
-    # Calculate aggregate throughput
-    throughput_stats['total'] = throughput_stats['average'] * len(throughputs)
-    # Create samples for throughput stats
-    for stat, value in throughput_stats.items():
-      samples.append(
-          sample.Sample('%s_Throughput_%s' % (benchmark_name, stat),
-                        float(value),
-                        throughput_unit, metadata))
-    if enable_latency_histograms:
-      # Combine all of the latency histogram dictionaries
-      latency_histogram = collections.Counter()
-      for histogram in latency_histograms:
-        latency_histogram.update(histogram)
-      # Create a sample for the aggregate latency histogram
-      hist_metadata = {'histogram': json.dumps(latency_histogram)}
-      hist_metadata.update(metadata)
-      samples.append(sample.Sample(
-          '%s_Latency_Histogram' % benchmark_name, 0, 'us', hist_metadata))
-      # Calculate stats on aggregate latency histogram
-      latency_stats = _HistogramStatsCalculator(latency_histogram, [50, 90, 99])
-      # Create samples for the latency stats
-      for stat, value in latency_stats.items():
-        samples.append(
-            sample.Sample('%s_Latency_%s' % (benchmark_name, stat),
-                          float(value),
-                          'us', metadata))
-    return samples
+  return samples
 
 
 def Run(benchmark_spec):
