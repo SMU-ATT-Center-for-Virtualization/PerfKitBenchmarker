@@ -217,7 +217,7 @@ def _SetupHostFirewall(benchmark_spec):
       server_vm.RemoteHostCommand(cmd % (protocol, ip_addr))
 
 
-def ParseNetperfAggregateOutput(stdout, metadata, benchmark_name):
+def ParseNetperfAggregateOutput(stdout, metadata):
   """Parses the stdout of a single netperf process.
 
   Args:
@@ -266,7 +266,7 @@ def ParseNetperfAggregateOutput(stdout, metadata, benchmark_name):
   return aggregate_samples
 
 
-def RunNetperf(vm, benchmark_name, server1_ip, server2_ip):
+def RunNetperf(vm, server1_ip, server2_ip):
   """Spawns netperf on a remote VM, parses results.
 
   Args:
@@ -305,8 +305,8 @@ def RunNetperf(vm, benchmark_name, server1_ip, server2_ip):
   stdout,_ = vm.RemoteCommand('cd %s && cat remote_hosts' % (netperf.NETPERF_EXAMPLE_DIR))
   logging.info(stdout)
 
-  # logging.info("INPUT TO CONTINUE")
-  # lol = raw_input()
+  logging.info("INPUT TO CONTINUE")
+  lol = raw_input()
 
   stdout, stderr = vm.RemoteCommand("cd %s && export PATH=$PATH:. && chmod +x runemomniaggdemo.sh && ./runemomniaggdemo.sh" % (netperf.NETPERF_EXAMPLE_DIR),
                                     ignore_failure=True, should_log=True, login_shell=False, timeout=1200)
@@ -317,15 +317,25 @@ def RunNetperf(vm, benchmark_name, server1_ip, server2_ip):
   logging.info(stdout)
   logging.info(stderr)
 
-  remote_stdout, _ = vm.RemoteCommand("cd %s && ./post_proc.py --intervals netperf_tps.log" % (netperf.NETPERF_EXAMPLE_DIR),
+  #TODO problem with post_proc now
+  logging.info("INPUT TO CONTINUE")
+  lol = raw_input()
+
+  remote_stdout, remote_stderr = vm.RemoteCommand("cd %s && ./post_proc.py --intervals netperf_tps.log" % (netperf.NETPERF_EXAMPLE_DIR),
                                       ignore_failure=True)
 
+
   logging.info(remote_stdout)
+  logging.info(remote_stderr)
+
+  logging.info("INPUT TO CONTINUE")
+  lol = raw_input()
+  
 
     # Metadata to attach to samples
   metadata = {'number_of_hosts': 3}
 
-  samples = ParseNetperfAggregateOutput(stdout, metadata, benchmark_name)           
+  samples = ParseNetperfAggregateOutput(stdout, metadata)           
 
   return samples
 
@@ -364,24 +374,23 @@ def Run(benchmark_spec):
 
 # for num_streams in FLAGS.netperf_num_streams:
 #   assert num_streams >= 1
-  for netperf_benchmark in FLAGS.netperf_benchmarks:
-    if vm_util.ShouldRunOnExternalIpAddress():
+  if vm_util.ShouldRunOnExternalIpAddress():
 
-      external_ip_results = RunNetperf(client_vm, netperf_benchmark,
-                                       server_vm1.ip_address, server_vm2.ip_address)
-      for external_ip_result in external_ip_results:
-        external_ip_result.metadata['ip_type'] = 'external'
-        external_ip_result.metadata.update(metadata)
-      results.extend(external_ip_results)
+    external_ip_results = RunNetperf(client_vm,
+                                     server_vm1.ip_address, server_vm2.ip_address)
+    for external_ip_result in external_ip_results:
+      external_ip_result.metadata['ip_type'] = 'external'
+      external_ip_result.metadata.update(metadata)
+    results.extend(external_ip_results)
 
-    if vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm1) and vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm2):
+  if vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm1) and vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm2):
 
-      internal_ip_results = RunNetperf(client_vm, netperf_benchmark,
-                                       server_vm1.internal_ip, server_vm2.internal_ip)
-      for internal_ip_result in internal_ip_results:
-        internal_ip_result.metadata.update(metadata)
-        internal_ip_result.metadata['ip_type'] = 'internal'
-      results.extend(internal_ip_results)
+    internal_ip_results = RunNetperf(client_vm,
+                                     server_vm1.internal_ip, server_vm2.internal_ip)
+    for internal_ip_result in internal_ip_results:
+      internal_ip_result.metadata.update(metadata)
+      internal_ip_result.metadata['ip_type'] = 'internal'
+    results.extend(internal_ip_results)
 
   return results
 

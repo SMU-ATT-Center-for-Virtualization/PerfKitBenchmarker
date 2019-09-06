@@ -1,9 +1,14 @@
 # this is a quick and dirty migration of runemomniagg2.sh to the 
 # --enable-demo mode of aggregate testing
 function kill_netperfs {
+    echo "Killing netperfs"
     pkill -ALRM netperf
     NETPERF_PROC=$(pgrep -P 1 -f netperf)
-    [ ! -z '$NETPERF_PROC' ] || kill $NETPERF_PROC
+
+    if [ -n "$NETPERF_PROC" ]; 
+    then
+        kill $NETPERF_PROC; 
+    fi
 
     pgrep -P 1 -f netperf > /dev/null
     while [ $? -eq 0 ]
