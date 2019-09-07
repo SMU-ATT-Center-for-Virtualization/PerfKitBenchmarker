@@ -245,18 +245,20 @@ def ParseNetperfAggregateOutput(stdout, metadata):
 # Average of interval 3 is 460995.000 Trans/s from 1566458404 to 1566458464
 # Minimum of interval 3 is 395865.170 Trans/s from 1566458404 to 1566458464
 # Maximum of interval 3 is 472895.650 Trans/s from 1566458404 to 1566458464
-
+  logging.info("Parsing netperf aggregate output")
   metadata = metadata.copy()
   aggregate_samples = []
 
-  for line in stdout.splitlines():
+  stdout_ascii = stdout.encode("ascii")
+
+  for line in stdout_ascii.splitlines():
     print(line)
     match = re.search('peak interval', line)
     if match:
       line_split = line.split()
       print(line_split)
       metric = line_split[0] + ' ' + line_split[6]
-      value = line_split[5]
+      value = float(line_split[5])
       unit = line_split[6]
       print(metric)
       print(value)
@@ -305,8 +307,8 @@ def RunNetperf(vm, server1_ip, server2_ip):
   stdout,_ = vm.RemoteCommand('cd %s && cat remote_hosts' % (netperf.NETPERF_EXAMPLE_DIR))
   logging.info(stdout)
 
-  logging.info("INPUT TO CONTINUE")
-  lol = raw_input()
+  # logging.info("INPUT TO CONTINUE")
+  # lol = raw_input()
 
   stdout, stderr = vm.RemoteCommand("cd %s && export PATH=$PATH:. && chmod +x runemomniaggdemo.sh && ./runemomniaggdemo.sh" % (netperf.NETPERF_EXAMPLE_DIR),
                                     ignore_failure=True, should_log=True, login_shell=False, timeout=1200)
@@ -318,8 +320,8 @@ def RunNetperf(vm, server1_ip, server2_ip):
   logging.info(stderr)
 
   #TODO problem with post_proc now
-  logging.info("INPUT TO CONTINUE")
-  lol = raw_input()
+  # logging.info("INPUT TO CONTINUE")
+  # lol = raw_input()
 
   remote_stdout, remote_stderr = vm.RemoteCommand("cd %s && ./post_proc.py --intervals netperf_tps.log" % (netperf.NETPERF_EXAMPLE_DIR),
                                       ignore_failure=True)
@@ -328,14 +330,14 @@ def RunNetperf(vm, server1_ip, server2_ip):
   logging.info(remote_stdout)
   logging.info(remote_stderr)
 
-  logging.info("INPUT TO CONTINUE")
-  lol = raw_input()
+  # logging.info("INPUT TO CONTINUE")
+  # lol = raw_input()
   
 
     # Metadata to attach to samples
   metadata = {'number_of_hosts': 3}
 
-  samples = ParseNetperfAggregateOutput(stdout, metadata)           
+  samples = ParseNetperfAggregateOutput(remote_stdout, metadata)           
 
   return samples
 

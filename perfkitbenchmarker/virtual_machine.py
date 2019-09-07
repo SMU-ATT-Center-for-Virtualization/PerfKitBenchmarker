@@ -26,6 +26,7 @@ import abc
 import os.path
 import threading
 import time
+import logging
 
 import jinja2
 
@@ -633,7 +634,9 @@ class BaseVirtualMachine(resource.BaseResource):
 
   def _PreDelete(self):
     """See base class."""
+    logging.info("_PreDelete called")
     self.LogVmDebugInfo()
+    self.GetResourceMetadata()
 
 
 class BaseOsMixin(six.with_metaclass(abc.ABCMeta, object)):
