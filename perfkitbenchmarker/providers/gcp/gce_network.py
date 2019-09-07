@@ -31,6 +31,7 @@ import threading
 from perfkitbenchmarker import context
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import flags
+from perfkitbenchmarker import logging
 from perfkitbenchmarker import network
 from perfkitbenchmarker import providers
 from perfkitbenchmarker import resource
