@@ -29,7 +29,9 @@
 - Raise IssueCommandError by default when vm_util.IssueCommand return code is
   non-zero.  Previous behavior can be emulated by setting
   `raise_on_failure=False`.
-
+- Changed support for reusing buckets for Azure blob service benchmarking. The
+  storage account and resource group are now named based on the bucket name so
+  that subsequent runs can use the same bucket.
 
 ### New features:
 - Windows benchmarks can now be run from linux controllers.
@@ -129,6 +131,8 @@
 - Added support for T4 GPUs on GCE.
 - Added mpstat utility to measure cpu processor stats.
 - Added a benchmark to run spark application on a cluster that computes an approximation to pi.
+- Added a benchmark to run spark io workload on a cluster that provisions a database and queries it.
+- Added flag --record_lscpu=True to record lscpu data as its own metric "lscpu"
 
 ### Enhancements:
 - Support for ProfitBricks API v4:
@@ -329,8 +333,12 @@
 - Added check that cuda_toolkit is installed when installing cudnn.
 - Added ability to set provider-specific MySQL flags for relational databases.
 - Add support for running t3 burstable VMs on AWS without unlimited mode.
+- Add support to run fio with a timeout on fio commands.
 - Added support for reporting bigtable cluster cpu utilization, gated by flag
   --get_bigtable_cluster_cpu_utilization.
+- Move vm_groups to inside the relational_db spec when there is one, to allow it
+  to control what vms are used. Rename the old vm_spec and disk_spec under the
+  relational_db to db_spec and db_disk_spec respectively, for added clarity.
 
 ### Bug fixes and maintenance updates:
 - Moved GPU-related specs from GceVmSpec to BaseVmSpec
@@ -534,3 +542,4 @@
 - Fixed the broken reference to ycsb.YCSB_TAR_URL in the
   cloud_spanner_ycsb_benchmark. Without this, the benchmark is not runnable.
 - Fixed bug of query failing to find AWS internet gateway after Delete called.
+- Abort and log when container resources are exhausted.

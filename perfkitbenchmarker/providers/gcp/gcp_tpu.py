@@ -78,7 +78,7 @@ class GcpTpu(cloud_tpu.BaseTpu):
     if self.spec.tpu_zone:
       cmd.flags['zone'] = self.spec.tpu_zone
     cmd.flags['project'] = self.project
-    _, _, retcode = cmd.Issue(timeout=TPU_TIMEOUT)
+    _, _, retcode = cmd.Issue(timeout=TPU_TIMEOUT, raise_on_failure=False)
     if retcode != 0:
       logging.error('Delete GCP cloud TPU failed.')
     else:
@@ -91,7 +91,7 @@ class GcpTpu(cloud_tpu.BaseTpu):
     if self.spec.tpu_zone:
       cmd.flags['zone'] = self.spec.tpu_zone
     cmd.flags['project'] = self.project
-    stdout, _, retcode = cmd.Issue()
+    stdout, _, retcode = cmd.Issue(raise_on_failure=False)
     if retcode != 0:
       logging.info('Could not found GCP cloud TPU %s.',
                    self.spec.tpu_name)

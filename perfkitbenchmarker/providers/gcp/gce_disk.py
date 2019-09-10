@@ -78,7 +78,7 @@ class GceDisk(disk.BaseDisk):
       cmd.flags['image'] = self.image
     if self.image_project:
       cmd.flags['image-project'] = self.image_project
-    _, stderr, retcode = cmd.Issue()
+    _, stderr, retcode = cmd.Issue(raise_on_failure=False)
     util.CheckGcloudResponseKnownFailures(stderr, retcode)
 
   def _Delete(self):
@@ -89,7 +89,7 @@ class GceDisk(disk.BaseDisk):
   def _Exists(self):
     """Returns true if the disk exists."""
     cmd = util.GcloudCommand(self, 'compute', 'disks', 'describe', self.name)
-    stdout, _, _ = cmd.Issue(suppress_warning=True)
+    stdout, _, _ = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     try:
       json.loads(stdout)
     except ValueError:
