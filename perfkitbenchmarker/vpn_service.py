@@ -13,10 +13,14 @@
 # limitations under the License.
 import threading
 
-from perfkitbenchmarker import errors, context, resource, flags
-import itertools
+from perfkitbenchmarker import context
+from perfkitbenchmarker import errors
+from perfkitbenchmarker import flags
+from perfkitbenchmarker import resource
+
+# import itertools
 import re
-from itertools import ifilter
+from itertools import ifilter, combinations
 import time
 import logging
 import json
@@ -61,7 +65,7 @@ class VPN(object):
   def Create(self, gwpair, suffix=''):
     self.GWPair = gwpair
     self.name = self.getKeyFromGWPair(gwpair)
-    self.tunnel_config = TunnelConfig(name=self.name, suffix=suffix)
+    self.tunnel_config = TunnelConfig(tunnel_name=self.name, suffix=suffix)
 
   def Delete(self):
     pass
@@ -198,9 +202,7 @@ class VPNService(resource.BaseResource):
     if self.tunnel_count is not None:
       result['vpn_service_tunnel_count'] = self.tunnel_count
     if self.gateway_count is not None:
-      result['gateway_count'] = self.gateway_count
-    # if self.psk is not None:
-    #   result['num_disable_cpus'] = self.psk
+      result['vpn_service_gateway_count'] = self.gateway_count
 
     return result
 
@@ -246,7 +248,7 @@ class VPNService(resource.BaseResource):
     # vpngw-us-west1-0-28ed049a <-> vpngw-us-central1-0-28ed049a # yes
     # vpngw-us-west1-0-28ed049a <-> vpngw-us-central1-1-28ed049a # no
      # get all gw pairs then filter out the non matching tunnel id's
-    vpngw_pairs = itertools.combinations(vpngws, 2)
+    vpngw_pairs = combinations(vpngws, 2)
     r = re.compile(r"(?P<gw_prefix>.*-.*-.*)?-(?P<gw_tnum>[0-9])-(?P<run_id>.*)")
     # function = lambda x: r.search(x[0]).group('gw_tnum') == r.search(x[1]).group('gw_tnum')
     function = lambda x: r.search(x[0]).group('gw_prefix') != r.search(x[1]).group('gw_prefix')
