@@ -503,11 +503,6 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     self.os_metadata['kernel_release'] = self.kernel_release
     if FLAGS.append_kernel_command_line:
       self.os_metadata['kernel_command_line'] = self.kernel_command_line
-    self.os_metadata['cpu_family'] = lscpu_results.cpu_family
-    self.os_metadata['cpu_mhz'] = lscpu_results.cpu_mhz
-    self.os_metadata['cpu_model'] = lscpu_results.cpu_model
-    self.os_metadata['cpu_bogomips'] = lscpu_results.cpu_bogomips
-    self.os_metadata['cpu_vendor'] = lscpu_results.cpu_vendor
 
   @vm_util.Retry(log_errors=False, poll_interval=1)
   def VMLastBootTime(self):
