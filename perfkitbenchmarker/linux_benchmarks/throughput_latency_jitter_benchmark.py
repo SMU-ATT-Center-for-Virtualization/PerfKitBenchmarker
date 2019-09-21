@@ -62,6 +62,9 @@ flags.DEFINE_boolean('use_nping', False,
 flags.DEFINE_boolean('do_ping', True,
                      'If set to True, does ping or nping if that flag is set')
 
+flags.DEFINE_boolean('skip_prepare', False,
+                     'If true, skips prepare phase. Assumes it is already prepared')
+
 def GetConfig(user_config):
   return configs.LoadConfig(BENCHMARK_CONFIG, user_config, BENCHMARK_NAME)
 

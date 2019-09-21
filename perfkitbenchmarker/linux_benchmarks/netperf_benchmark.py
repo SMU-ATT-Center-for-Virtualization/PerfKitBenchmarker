@@ -155,7 +155,9 @@ def Prepare(benchmark_spec):
   logging.info("RUNNING NETPERF Prepare")
   vms = benchmark_spec.vms
   vms = vms[:2]
-  vm_util.RunThreaded(PrepareNetperf, vms)
+
+  if not FLAGS.skip_prepare:
+    vm_util.RunThreaded(PrepareNetperf, vms)
 
   num_streams = max(FLAGS.netperf_num_streams)
 
@@ -175,10 +177,11 @@ def Prepare(benchmark_spec):
   vms[1].RemoteCommand(netserver_cmd)
 
   # Copy remote test script to client
-  path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
-  logging.info('Uploading %s to %s', path, vms[0])
-  vms[0].PushFile(path, REMOTE_SCRIPT)
-  vms[0].RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
+  if not FLAGS.skip_prepare:
+    path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
+    logging.info('Uploading %s to %s', path, vms[0])
+    vms[0].PushFile(path, REMOTE_SCRIPT)
+    vms[0].RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
 
 
 def _SetupHostFirewall(benchmark_spec):

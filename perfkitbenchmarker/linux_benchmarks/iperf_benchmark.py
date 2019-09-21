@@ -77,7 +77,8 @@ def Prepare(benchmark_spec):
             vms)))
 
   for vm in vms:
-    vm.Install('iperf')
+    if not FLAGS.skip_prepare:
+      vm.Install('iperf')
     if vm_util.ShouldRunOnExternalIpAddress():
       vm.AllowPort(IPERF_PORT)
     stdout, _ = vm.RemoteCommand(('nohup iperf --server --port %s &> /dev/null'
