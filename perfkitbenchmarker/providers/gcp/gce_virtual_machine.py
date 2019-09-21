@@ -374,7 +374,6 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
     self.backfill_image = False
     self.zone = vm_spec.zone  # add zone support
     self.cidr = vm_spec.cidr  # add cidr support
-    self.network = gce_network.GceNetwork.GetNetwork(self)
     self.network = self._GetNetwork()
     self.firewall = gce_network.GceFirewall.GetFirewall()
     self.boot_disk_size = vm_spec.boot_disk_size or self.BOOT_DISK_SIZE_GB

@@ -697,7 +697,6 @@ class _VmGroupSpec(spec.BaseSpec):
         provisioned VMs.
     vm_spec: BaseVmSpec. Configuration for provisioned VMs in this group.
     cidr: subnet each vm in this group belongs to
-    zone: zone each vm group lives in.
   """
 
   def __init__(self, component_full_name, flag_values=None, **kwargs):
@@ -761,9 +760,6 @@ class _VmGroupSpec(spec.BaseSpec):
             'min': 0
         }),
         'cidr': (option_decoders.StringDecoder, {
-            'default': None
-        }),
-        'zone': (option_decoders.StringDecoder, {
             'default': None
         }),
         'vm_spec': (option_decoders.PerCloudConfigDecoder, {})
@@ -1290,8 +1286,10 @@ class _VPNServiceDecoder(option_decoders.TypeVerifier):
         **vpn_service_config)
     return result
 
+
 class _AppGroupSpec(spec.BaseSpec):
   """Configurable options of a AppService group."""
+
 
   @classmethod
   def _GetOptionDecoderConstructions(cls):

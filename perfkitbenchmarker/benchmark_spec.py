@@ -49,6 +49,8 @@ from perfkitbenchmarker import stages
 from perfkitbenchmarker import static_virtual_machine as static_vm
 from perfkitbenchmarker import virtual_machine
 from perfkitbenchmarker import vm_util
+from perfkitbenchmarker import vpn_service
+
 import six
 from six.moves import range
 import six.moves._thread

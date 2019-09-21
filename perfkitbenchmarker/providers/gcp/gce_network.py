@@ -25,10 +25,13 @@ from __future__ import division
 from __future__ import print_function
 
 import json
+import logging
 import threading
 import logging
 
-from perfkitbenchmarker import flags, context, errors
+from perfkitbenchmarker import context
+from perfkitbenchmarker import errors
+from perfkitbenchmarker import flags
 from perfkitbenchmarker import network
 from perfkitbenchmarker import providers
 from perfkitbenchmarker import resource
@@ -259,14 +262,14 @@ class GceVPNGWResource(resource.BaseResource):
     cmd = util.GcloudCommand(self, 'compute', 'target-vpn-gateways', 'describe',
                              self.name)
     cmd.flags['region'] = self.region
-    _, _, retcode = cmd.Issue(suppress_warning=True)
+    _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     return not retcode
 
   def _Delete(self):
     cmd = util.GcloudCommand(self, 'compute', 'target-vpn-gateways', 'delete',
                              self.name)
     cmd.flags['region'] = self.region
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
 
 class GceIPAddress(resource.BaseResource):
@@ -295,14 +298,14 @@ class GceIPAddress(resource.BaseResource):
     """ Deletes a public IP for the VPN GW """
     cmd = util.GcloudCommand(self, 'compute', 'addresses', 'delete', self.name)
     cmd.flags['region'] = self.region
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Returns True if the IP address exists."""
     cmd = util.GcloudCommand(self, 'compute', 'addresses', 'describe',
                              self.name)
     cmd.flags['region'] = self.region
-    _, _, retcode = cmd.Issue(suppress_warning=True)
+    _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     return not retcode
 
 
@@ -336,13 +339,13 @@ class GceStaticTunnel(resource.BaseResource):
     """
     cmd = util.GcloudCommand(self, 'compute', 'vpn-tunnels', 'delete', self.name)
     cmd.flags['region'] = self.region
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Returns True if the tunnel exists."""
     cmd = util.GcloudCommand(self, 'compute', 'vpn-tunnels', 'describe', self.name)
     cmd.flags['region'] = self.region
-    _, _, retcode = cmd.Issue(suppress_warning=True)
+    _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     return not retcode
 
   def IsReady(self):
@@ -382,13 +385,13 @@ class GceRoute(resource.BaseResource):
       route: The route name to delete
     """
     cmd = util.GcloudCommand(self, 'compute', 'routes', 'delete', self.name)
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Returns True if the Route exists."""
     cmd = util.GcloudCommand(self, 'compute', 'routes', 'describe',
                              self.name)
-    _, _, retcode = cmd.Issue(suppress_warning=True)
+    _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     return not retcode
 
 
@@ -431,14 +434,14 @@ class GceForwardingRule(resource.BaseResource):
     cmd = util.GcloudCommand(self, 'compute', 'forwarding-rules', 'delete',
                              self.name)
     cmd.flags['region'] = self.src_region
-    cmd.Issue()
+    cmd.Issue(raise_on_failure=False)
 
   def _Exists(self):
     """Returns True if the Forwarding Rule exists."""
     cmd = util.GcloudCommand(self, 'compute', 'forwarding-rules', 'describe',
                              self.name)
     cmd.flags['region'] = self.src_region
-    _, _, retcode = cmd.Issue(suppress_warning=True)
+    _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     return not retcode
 
 
@@ -657,7 +660,7 @@ class GceNetwork(network.BaseNetwork):
 
     # add support for zone, cidr, and separate networks
     if network_spec.zone and network_spec.cidr:
-      name = FLAGS.gce_network_name or 'pkb-vpnnetwork-%s-%s' % (network_spec.zone, FLAGS.run_uri)
+      name = FLAGS.gce_network_name or 'pkb-network-%s-%s' % (network_spec.zone, FLAGS.run_uri)
       FLAGS.gce_subnet_region = util.GetRegionFromZone(network_spec.zone)
       FLAGS.gce_subnet_addr = network_spec.cidr
 
