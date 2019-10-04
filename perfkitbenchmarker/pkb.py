@@ -1210,6 +1210,73 @@ def _CreateLscpuSamples(vms):
       samples.append(sample.Sample('lscpu', 0, '', metadata))
   return samples
 
+def RunController():
+  """Runs all benchmarks in PerfKitBenchmarker.
+
+  Returns:
+    Exit status for the process.
+  """
+  benchmark_specs = _CreateBenchmarkSpecs()
+  print(benchmark_specs[0].vms_to_boot['vm_2'].vm_spec)
+  print(benchmark_specs[0].vms_to_boot['vm_2'].vm_spec)
+  # if FLAGS.randomize_run_order:
+  #   random.shuffle(benchmark_specs)
+  if FLAGS.dry_run:
+    print('PKB will run with the following configurations:')
+    for spec in benchmark_specs:
+      print(spec)
+      print('')
+    return 0
+
+  collector = SampleCollector()
+  try:
+    tasks = [(RunBenchmarkTask, (spec,), {})
+             for spec in benchmark_specs]
+    if FLAGS.run_processes is None:
+      spec_sample_tuples = RunBenchmarkTasksInSeries(tasks)
+    else:
+      spec_sample_tuples = background_tasks.RunParallelProcesses(
+          tasks, FLAGS.run_processes, FLAGS.run_processes_delay)
+    benchmark_specs, sample_lists = list(zip(*spec_sample_tuples))
+    for sample_list in sample_lists:
+      collector.samples.extend(sample_list)
+
+  finally:
+    if collector.samples:
+      collector.PublishSamples()
+
+  #   if benchmark_specs:
+  #     logging.info(benchmark_status.CreateSummary(benchmark_specs))
+
+  #   logging.info('Complete logs can be found at: %s',
+  #                vm_util.PrependTempDir(LOG_FILE_NAME))
+  #   logging.info('Completion statuses can be found at: %s',
+  #                vm_util.PrependTempDir(COMPLETION_STATUS_FILE_NAME))
+
+  # if stages.TEARDOWN not in FLAGS.run_stage:
+  #   logging.info(
+  #       'To run again with this setup, please use --run_uri=%s', FLAGS.run_uri)
+
+  # if FLAGS.archive_bucket:
+  #   archive.ArchiveRun(vm_util.GetTempDir(), FLAGS.archive_bucket,
+  #                      gsutil_path=FLAGS.gsutil_path,
+  #                      prefix=FLAGS.run_uri + '_')
+
+  # # Write completion status file(s)
+  # completion_status_file_name = (
+  #     vm_util.PrependTempDir(COMPLETION_STATUS_FILE_NAME))
+  # with open(completion_status_file_name, 'w') as status_file:
+  #   _WriteCompletionStatusFile(benchmark_specs, status_file)
+  # if FLAGS.completion_status_file:
+  #   with open(FLAGS.completion_status_file, 'w') as status_file:
+  #     _WriteCompletionStatusFile(benchmark_specs, status_file)
+
+  # all_benchmarks_succeeded = all(spec.status == benchmark_status.SUCCEEDED
+  #                                for spec in benchmark_specs)
+  # return 0 if all_benchmarks_succeeded else 1
+  return 0
+
+
 
 def _CreateProcCpuSamples(vms):
   """Creates samples from linux VMs of lscpu output."""
@@ -1242,3 +1309,15 @@ def Main():
   CheckVersionFlag()
   SetUpPKB()
   return RunBenchmarks()
+
+
+def Controller():
+  log_util.ConfigureBasicLogging()
+  _InjectBenchmarkInfoIntoDocumentation()
+  _ParseFlags()
+
+  SetUpPKB()
+
+  return RunController()
+
+
