@@ -109,6 +109,10 @@ flags.DEFINE_integer('ssh_server_alive_count_max', 10,
                      'Value for ssh -o ServerAliveCountMax. Use with '
                      '--ssh_server_alive_interval to configure how long to '
                      'wait for unresponsive servers.')
+flags.DEFINE_string('ssh_key_file', None,
+                    'Keyfile to override pkb created ssh key')
+flags.DEFINE_string('ssl_cert_file', None,
+                    'cert file to override created cert file')
 
 
 class IpAddressSubset(object):
@@ -150,54 +154,75 @@ def GenTempDir():
 
 def SSHKeyGen():
   """Create PerfKitBenchmarker SSH keys in the tmp dir of the current run."""
-  if not os.path.isdir(GetTempDir()):
-    GenTempDir()
 
-  if not os.path.isfile(GetPrivateKeyPath()):
-    create_cmd = ['ssh-keygen',
-                  '-t',
-                  'rsa',
-                  '-N',
-                  '',
-                  '-q',
-                  '-f',
-                  PrependTempDir(PRIVATE_KEYFILE)]
-    shell_value = RunningOnWindows()
-    create_process = subprocess.Popen(create_cmd,
-                                      shell=shell_value,
-                                      stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE)
-    create_process.communicate()
+  # TODO make this more robust
+  if FLAGS.ssh_key_file and FLAGS.ssl_cert_file:
+    globals().update(PRIVATE_KEYFILE = FLAGS.ssh_key_file)
+    globals().update(PUBLIC_KEYFILE = FLAGS.ssh_key_file + '.pub')
+    globals().update(CERT_FILE = FLAGS.ssl_cert_file)
+    # print("PRIVATE KEYFILE: " + PRIVATE_KEYFILE)
+  else:
+    if not os.path.isdir(GetTempDir()):
+      GenTempDir()
 
-  if not os.path.isfile(GetCertPath()):
-    create_cmd = ['openssl',
-                  'req',
-                  '-x509',
-                  '-new',
-                  '-out',
-                  PrependTempDir(CERT_FILE),
-                  '-key',
-                  PrependTempDir(PRIVATE_KEYFILE)]
-    shell_value = RunningOnWindows()
-    create_process = subprocess.Popen(create_cmd,
-                                      shell=shell_value,
-                                      stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE,
-                                      stdin=subprocess.PIPE)
-    input_bytes = ('\n' * 7).encode('utf8')
-    create_process.communicate(input=input_bytes)
+    if not os.path.isfile(GetPrivateKeyPath()):
+      create_cmd = ['ssh-keygen',
+                    '-t',
+                    'rsa',
+                    '-N',
+                    '',
+                    '-q',
+                    '-f',
+                    PrependTempDir(PRIVATE_KEYFILE)]
+      shell_value = RunningOnWindows()
+      create_process = subprocess.Popen(create_cmd,
+                                        shell=shell_value,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE)
+      create_process.communicate()
+
+    if not os.path.isfile(GetCertPath()):
+      create_cmd = ['openssl',
+                    'req',
+                    '-x509',
+                    '-new',
+                    '-out',
+                    PrependTempDir(CERT_FILE),
+                    '-key',
+                    PrependTempDir(PRIVATE_KEYFILE)]
+      shell_value = RunningOnWindows()
+      create_process = subprocess.Popen(create_cmd,
+                                        shell=shell_value,
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE,
+                                        stdin=subprocess.PIPE)
+      input_bytes = ('\n' * 7).encode('utf8')
+      create_process.communicate(input=input_bytes)
+
+  # print("PRIVATE KEYFILE: " + PRIVATE_KEYFILE)
 
 
 def GetPrivateKeyPath():
-  return PrependTempDir(PRIVATE_KEYFILE)
+  if FLAGS.ssh_key_file:
+    # print("PRIVATE KEYFILE: " + PRIVATE_KEYFILE)
+    return PRIVATE_KEYFILE
+  else:
+    return PrependTempDir(PRIVATE_KEYFILE)
 
 
 def GetPublicKeyPath():
-  return PrependTempDir(PUBLIC_KEYFILE)
+  if FLAGS.ssh_key_file:
+    # print("PUBLIC KEYFILE: " + PUBLIC_KEYFILE)
+    return PUBLIC_KEYFILE
+  else: 
+    return PrependTempDir(PUBLIC_KEYFILE)
 
 
 def GetCertPath():
-  return PrependTempDir(CERT_FILE)
+  if FLAGS.ssl_cert_file:
+    return CERT_FILE
+  else:
+    return PrependTempDir(CERT_FILE)
 
 
 def GetSshOptions(ssh_key_filename, connect_timeout=5):
