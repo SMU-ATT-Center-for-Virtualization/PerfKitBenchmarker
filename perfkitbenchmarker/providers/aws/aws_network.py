@@ -785,11 +785,11 @@ class AwsGlobalAccelerator(resource.BaseResource):
         'delete-accelerator',
         '--region', self.region,
         '--accelerator-arn', self.accelerator_arn]
-    stdout, stderr, _ = vm_util.IssueCommand(delete_cmd)
+    output = vm_util.IssueRetryableCommand(delete_cmd)
 
     exists = self._Exists()
     while exists:
-      vm_util.IssueCommand(delete_cmd)
+      stdout, stderr, _ = vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
       if "AcceleratorNotFoundException" in stderr:
         break
       exists = self._Exists()
@@ -818,13 +818,13 @@ class AwsGlobalAccelerator(resource.BaseResource):
         'describe-accelerator',
         '--region', self.region,
         '--accelerator-arn', self.accelerator_arn]
-    stdout, _, _ = vm_util.IssueCommand(describe_cmd)
     try:
+      stdout, _, _ = vm_util.IssueCommand(describe_cmd, raise_on_failure=False)
       response = json.loads(stdout)
       accelerator = response['Accelerator']
       return len(accelerator) > 0
     except ValueError as e:
-        return False
+      return False
 
 
 

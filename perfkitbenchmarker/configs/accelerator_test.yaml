@@ -1,0 +1,21 @@
+iperf:
+  flag_matrix: inter_region
+  flag_matrix_defs:
+    inter_region:
+      gce_network_tier: [premium]
+      aws_global_accelerator: [True]
+  vm_groups:
+    vm_1:
+      cloud: AWS
+      vm_spec:
+        AWS:
+          machine_type: m4.4xlarge
+          zone: us-east-1a
+    vm_2:
+      cloud: GCP
+      vm_spec:
+        GCP:
+          machine_type: n1-standard-16
+          zone: us-east4-a
+  flags:
+    iperf_runtime_in_seconds: 10
