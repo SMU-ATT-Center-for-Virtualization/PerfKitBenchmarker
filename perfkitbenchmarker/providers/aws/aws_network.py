@@ -29,6 +29,7 @@ import re
 import xmltodict
 import random
 import string
+import time
 
 from perfkitbenchmarker import context
 from perfkitbenchmarker import errors
@@ -860,6 +861,7 @@ class AwsGlobalAccelerator(resource.BaseResource):
     while status['Accelerator']['Enabled'] == True:
       status = self.Describe()
     
+    time.sleep(10)
     # need to delete listeners before accelerator can be deleted
     for listener in self.listeners:
       listener._Delete()
@@ -869,7 +871,7 @@ class AwsGlobalAccelerator(resource.BaseResource):
         'delete-accelerator',
         '--region', self.region,
         '--accelerator-arn', self.accelerator_arn]
-    stdout, stderr, _ = vm_util.IssueCommand(delete_cmd)
+    output = vm_util.IssueRetryableCommand(delete_cmd)
 
     exists = self._Exists()
     while exists:
@@ -902,15 +904,13 @@ class AwsGlobalAccelerator(resource.BaseResource):
         'describe-accelerator',
         '--region', self.region,
         '--accelerator-arn', self.accelerator_arn]
-    stdout, _, _ = vm_util.IssueCommand(describe_cmd)
     try:
+      stdout, _, _ = vm_util.IssueCommand(describe_cmd, raise_on_failure=False)
       response = json.loads(stdout)
       accelerator = response['Accelerator']
       return len(accelerator) > 0
     except ValueError as e:
-        return False
-
-
+      return False
 
   def Describe(self):
     """Returns true if the accelerator exists."""
