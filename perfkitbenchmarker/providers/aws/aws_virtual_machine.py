@@ -830,7 +830,7 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
       if len(boot_drive) > 0:
         # get the boot drive index by dropping the nvme prefix
         boot_idx = int(boot_drive[4:])
-        logging.info("found boot drive at nvme index %d" % boot_idx)
+        logging.info('found boot drive at nvme index %d', boot_idx)
         return boot_idx
       else:
         # boot drive is not nvme
