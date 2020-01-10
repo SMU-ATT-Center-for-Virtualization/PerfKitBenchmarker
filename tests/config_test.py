@@ -42,6 +42,14 @@ a:
     default:
       vm_spec: null
 """
+VALID_CONFIG_CHANGE_GROUP_NAME = """
+a:
+  vm_groups:
+    vm_1:
+      vm_spec: null
+    vm_2:
+      vm_spec: null
+"""
 CONFIG_A = """
 a:
   flags:
@@ -100,6 +108,17 @@ class ConfigsTestCase(unittest.TestCase):
     self.assertEqual(config['a']['flags']['flag2'], 'not_overwritten')
     # Key is only present in the override config.
     self.assertEqual(config['a']['flags']['flag3'], 'new_flag')
+
+  def testMergeVMGroupConfigs(self):
+    default_config = yaml.safe_load(VALID_CONFIG)
+    user_config = yaml.safe_load(VALID_CONFIG_CHANGE_GROUP_NAME)
+    config = configs.MergeConfigs(default_config, user_config)
+    # 'default','vm_1', 'vm_2' all in vm_groups in the final config.
+    self.assertDictContainsSubset(default_config['a']['vm_groups'],
+                                  config['a']['vm_groups'])
+    self.assertDictContainsSubset(user_config['a']['vm_groups'],
+                                  config['a']['vm_groups'])
+    self.assertEqual(len(config['a']['vm_groups']), 3)
 
   def testLoadConfigDoesMerge(self):
     default = yaml.safe_load(CONFIG_A)
