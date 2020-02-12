@@ -43,6 +43,10 @@ flags.DEFINE_bool(
     'Allows executables to be set to High (up from Normal) CPU priority '
     'through the SetProcessPriorityToHigh function.')
 
+flags.DEFINE_bool(
+    'skip_package_cleanup', False,
+    'skips cleanup')
+
 SMB_PORT = 445
 WINRM_PORT = 5986
 RDP_PORT = 3389
@@ -415,6 +419,7 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
 
   @vm_util.Retry(poll_interval=1, max_retries=15)
   def OnStartup(self):
+
     # Log driver information so that the user has a record of which drivers
     # were used.
     # TODO(user): put the driver information in the metadata.
@@ -426,7 +431,8 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
     self.home_dir = stdout.strip()
     stdout, _ = self.RemoteCommand('echo $env:SystemDrive')
     self.system_drive = stdout.strip()
-    self.RemoteCommand('mkdir %s' % self.temp_dir)
+
+    self.RemoteCommand('mkdir %s' % self.temp_dir, ignore_failure=True)
     self.DisableGuestFirewall()
 
   def _Reboot(self):
@@ -468,8 +474,12 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
     Deletes the Perfkit Benchmarker temp directory on the VM
     and uninstalls all PerfKit packages.
     """
+
+    if FLAGS.skip_package_cleanup:
+      return
     for package_name in self._installed_packages:
       self.Uninstall(package_name)
+
     self.RemoteCommand('rm -recurse -force %s' % self.temp_dir)
     self.EnableGuestFirewall()
 
