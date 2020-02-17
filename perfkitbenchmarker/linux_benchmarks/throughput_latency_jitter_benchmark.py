@@ -65,6 +65,9 @@ flags.DEFINE_boolean('do_ping', True,
 flags.DEFINE_boolean('skip_prepare', False,
                      'If true, skips prepare phase. Assumes it is already prepared')
 
+flags.DEFINE_boolean('skip_firewall_rules', False,
+                     'If true, skips creating all firewall rules')
+
 def GetConfig(user_config):
   return configs.LoadConfig(BENCHMARK_CONFIG, user_config, BENCHMARK_NAME)
 
