@@ -15,25 +15,33 @@
 """Utilities for working with AliCloud Web Services resources."""
 
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 import shlex
-import string
-import random
-import os
-try:
-    import paramiko
-except ImportError:
-    paramiko = None
 
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import vm_util
+import six
 
-ALI_PREFIX = ['aliyuncli']
+ALI_PREFIX = ['aliyun']
 ROOT = 'root'
 FLAGS = flags.FLAGS
 PASSWD_LEN = 20
 
 
 REGION_HZ = 'cn-hangzhou'
+
+
+ADD_USER_TEMPLATE = """#!/bin/bash
+echo "{user_name} ALL = NOPASSWD: ALL" >> /etc/sudoers
+useradd {user_name} --home /home/{user_name} --shell /bin/bash -m
+mkdir /home/{user_name}/.ssh
+echo "{public_key}" >> /home/{user_name}/.ssh/authorized_keys
+chown -R {user_name}:{user_name} /home/{user_name}/.ssh
+chmod 700 /home/{user_name}/.ssh
+chmod 600 /home/{user_name}/.ssh/authorized_keys
+"""
 
 
 def GetEncodedCmd(cmd):
@@ -44,7 +52,7 @@ def GetEncodedCmd(cmd):
 
 def GetRegionByZone(zone):
   if zone.find(REGION_HZ) != -1:
-      return REGION_HZ
+    return REGION_HZ
   s = zone.split('-')
   if s[0] == 'cn':
     s.pop()
@@ -66,15 +74,16 @@ def AddTags(resource_id, resource_type, region, **kwargs):
     return
 
   tag_cmd = ALI_PREFIX + [
-      'ecs',
-      'AddTags',
-      '--RegionId %s' % region,
-      '--ResourceId %s' % resource_id,
-      '--ResourceType %s' % resource_type]
-  for index, (key, value) in enumerate(kwargs.iteritems()):
-    tag_cmd.append('--Tag{0}Key {1} --Tag{0}Value {2}'
-                   .format(index + 1, key, value))
-  tag_cmd = GetEncodedCmd(tag_cmd)
+      'ecs', 'AddTags',
+      '--RegionId', region,
+      '--ResourceId', resource_id,
+      '--ResourceType', resource_type
+  ]
+  for index, (key, value) in enumerate(six.iteritems(kwargs)):
+    tag_cmd.extend([
+        '--Tag.{0}.Key'.format(index + 1), str(key),
+        '--Tag.{0}.Value'.format(index + 1), str(value)
+    ])
   vm_util.IssueRetryableCommand(tag_cmd)
 
 
@@ -92,51 +101,6 @@ def AddDefaultTags(resource_id, resource_type, region):
   """
   tags = {'owner': FLAGS.owner, 'perfkitbenchmarker-run': FLAGS.run_uri}
   AddTags(resource_id, resource_type, region, **tags)
-
-
-@vm_util.Retry(max_retries=10)
-def AddPubKeyToHost(host_ip, password, keyfile, username):
-  public_key = str()
-  if keyfile:
-    keyfile = os.path.expanduser(keyfile)
-    if not paramiko:
-      raise Exception('`paramiko` is required for pushing keyfile to ecs.')
-    with open(keyfile, 'r') as f:
-      public_key = f.read()
-  ssh = paramiko.SSHClient()
-  ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-  try:
-    ssh.connect(
-        host_ip,
-        username=ROOT,  # We should use root to add pubkey to host
-        password=password,
-    )
-    if username == ROOT:
-      command_list = [
-          'mkdir .ssh; echo "%s" >> ~/.ssh/authorized_keys' % public_key
-      ]
-    else:
-      command_list = [
-          'echo "{0} ALL = NOPASSWD: ALL" >> /etc/sudoers'.format(username),
-          'useradd {0} --home /home/{0} --shell /bin/bash -m'.format(username),
-          'mkdir /home/{0}/.ssh'.format(username),
-          'echo "{0}" >> /home/{1}/.ssh/authorized_keys'
-          .format(public_key, username),
-          'chown -R {0}:{0} /home/{0}/.ssh'.format(username)]
-    command = ';'.join(command_list)
-    ssh.exec_command(command)
-
-    ssh.close()
-    return True
-  except IOError:
-    raise IOError
-
-
-def GeneratePassword(length=PASSWD_LEN):
-  digit_len = length / 2
-  letter_len = length - digit_len
-  return ''.join(random.sample(string.letters, digit_len)) + \
-         ''.join(random.sample(string.digits, letter_len))
 
 
 def GetDrivePathPrefix():

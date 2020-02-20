@@ -41,7 +41,7 @@ from six.moves import range
 JNA_JAR_URL = ('https://maven.java.net/content/repositories/releases/'
                'net/java/dev/jna/jna/4.1.0/jna-4.1.0.jar')
 CASSANDRA_GIT_REPRO = 'https://github.com/apache/cassandra.git'
-CASSANDRA_VERSION = 'cassandra-2.1.10'
+CASSANDRA_VERSION = 'cassandra-2.1'
 CASSANDRA_YAML_TEMPLATE = 'cassandra/cassandra.yaml.j2'
 CASSANDRA_ENV_TEMPLATE = 'cassandra/cassandra-env.sh.j2'
 CASSANDRA_DIR = posixpath.join(INSTALL_DIR, 'cassandra')
@@ -50,6 +50,12 @@ CASSANDRA_OUT = posixpath.join(CASSANDRA_DIR, 'cassandra.out')
 CASSANDRA_ERR = posixpath.join(CASSANDRA_DIR, 'cassandra.err')
 NODETOOL = posixpath.join(CASSANDRA_DIR, 'bin', 'nodetool')
 
+# HTTP repository no longer works with ant
+HTTPS_MAVEN_REPO = 'https://repo.maven.apache.org'
+FIX_HTTP_REPO_CMD = 'sed -i "s#{old_repo}#{new_repo}#" build.xml'.format(
+    old_repo='http://repo2.maven.org', new_repo=HTTPS_MAVEN_REPO)
+ANT_BUILD_FLAG = '-Dartifact.remoteRepository.central={}/maven2'.format(
+    HTTPS_MAVEN_REPO)
 
 # Number of times to attempt to start the cluster.
 CLUSTER_START_TRIES = 10
@@ -81,12 +87,16 @@ def _Install(vm):
   vm.Install('openjdk')
   vm.Install('curl')
   vm.RemoteCommand(
-      'cd {0}; git clone {1}; cd {2}; git checkout {3}; {4}/bin/ant'.format(
+      'cd {0}; git clone {1}; cd {2}; git checkout {3}; {4}; {5}/bin/ant {6}'
+      .format(
           INSTALL_DIR,
           CASSANDRA_GIT_REPRO,
           CASSANDRA_DIR,
           CASSANDRA_VERSION,
-          ANT_HOME_DIR))
+          FIX_HTTP_REPO_CMD,
+          ANT_HOME_DIR,
+          ANT_BUILD_FLAG))
+
   # Add JNA
   vm.RemoteCommand('cd {0} && curl -LJO {1}'.format(
       posixpath.join(CASSANDRA_DIR, 'lib'),

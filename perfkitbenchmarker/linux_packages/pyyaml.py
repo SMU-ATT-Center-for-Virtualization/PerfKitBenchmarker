@@ -1,4 +1,4 @@
-# Copyright 2014 PerfKitBenchmarker Authors. All rights reserved.
+# Copyright 2018 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,23 +13,35 @@
 # limitations under the License.
 
 
-"""Module containing mdadm installation and cleanup functions."""
+"""Module containing pyyaml installation and cleanup functions."""
 
 
 def _Install(vm):
-  """Installs the mdadm package on the VM."""
-  vm.InstallPackages('mdadm')
+  """Installs the pyyaml package on the VM."""
+  vm.Install('pip')
+  vm.RemoteCommand('sudo pip install pyyaml')
 
 
 def YumInstall(vm):
-  """Installs the mdadm package on the VM."""
+  """Installs the pyyaml package on the VM."""
   _Install(vm)
 
 
 def AptInstall(vm):
-  """Installs the mdadm package on the VM."""
+  """Installs the pyyaml package on the VM."""
   _Install(vm)
 
 
-def SwupdInstall(vm):
-  vm.InstallPackages('storage-utils')
+def _Uninstall(vm):
+  """Uninstalls the pyyaml package on the VM."""
+  vm.RemoteCommand('sudo pip -y pyyaml')
+
+
+def YumUninstall(vm):
+  """Uninstalls the pyyaml package on the VM."""
+  _Uninstall(vm)
+
+
+def AptUninstall(vm):
+  """Uninstalls the pyyaml package on the VM."""
+  _Uninstall(vm)

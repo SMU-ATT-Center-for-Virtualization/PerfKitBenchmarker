@@ -1,4 +1,4 @@
-# Copyright 2014 PerfKitBenchmarker Authors. All rights reserved.
+# Copyright 2019 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,24 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-"""Module containing mdadm installation and cleanup functions."""
-
-
-def _Install(vm):
-  """Installs the mdadm package on the VM."""
-  vm.InstallPackages('mdadm')
+"""Module containing google.cloud go package installation and cleanup.
+"""
 
 
-def YumInstall(vm):
-  """Installs the mdadm package on the VM."""
-  _Install(vm)
+def Install(vm):
+  """Install google.cloud go package on the VM."""
+  vm.RemoteCommand('/usr/local/go/bin/go get -u cloud.google.com/go/...')
 
 
-def AptInstall(vm):
-  """Installs the mdadm package on the VM."""
-  _Install(vm)
-
-
-def SwupdInstall(vm):
-  vm.InstallPackages('storage-utils')
+def Uninstall(_):
+  """Uninstalls google.cloud go package on the VM."""
+  # No clean way to uninstall everything. The VM will be deleted at the end
+  # of the test.
+  pass

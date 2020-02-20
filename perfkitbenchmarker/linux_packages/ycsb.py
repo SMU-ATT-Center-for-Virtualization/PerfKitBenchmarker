@@ -67,6 +67,8 @@ from six.moves import zip
 
 FLAGS = flags.FLAGS
 
+YCSB_URL_TEMPLATE = ('https://github.com/brianfrankcooper/YCSB/releases/'
+                     'download/{0}/ycsb-{0}.tar.gz')
 YCSB_DIR = posixpath.join(INSTALL_DIR, 'ycsb')
 YCSB_EXE = posixpath.join(YCSB_DIR, 'bin', 'ycsb')
 HDRHISTOGRAM_DIR = posixpath.join(INSTALL_DIR, 'hdrhistogram')
@@ -103,6 +105,8 @@ AGGREGATE_OPERATORS = {
 
 flags.DEFINE_string('ycsb_version', '0.9.0', 'YCSB version to use. Defaults to '
                     'version 0.9.0.')
+flags.DEFINE_string('ycsb_tar_url', None, 'URL to a YCSB tarball to use '
+                    'instead of the releases located on github.')
 flags.DEFINE_enum('ycsb_measurement_type', HISTOGRAM,
                   YCSB_MEASUREMENT_TYPES,
                   'Measurement type to use for ycsb. Defaults to histogram.')
@@ -114,6 +118,9 @@ flags.DEFINE_boolean('ycsb_histogram', False, 'Include individual '
                      'count).')
 flags.DEFINE_boolean('ycsb_load_samples', True, 'Include samples '
                      'from pre-populating database.')
+flags.DEFINE_boolean('ycsb_skip_load_stage', False, 'If True, skip the data '
+                     'loading staging. It can be used when the database target '
+                     'already exists with pre-populated data.')
 flags.DEFINE_boolean('ycsb_include_individual_results', False,
                      'Include results from each client VM, rather than just '
                      'combined results.')
@@ -171,6 +178,14 @@ flags.DEFINE_float('ycsb_scanproportion',
 # Default loading thread count for non-batching backends.
 DEFAULT_PRELOAD_THREADS = 32
 
+# Customer YCSB tar url. If not set, the official YCSB release will be used.
+_ycsb_tar_url = None
+
+
+def SetYcsbTarUrl(url):
+  global _ycsb_tar_url
+  _ycsb_tar_url = url
+
 
 def _GetVersionIndex(version_str):
   """Returns the version index from ycsb version string.
@@ -215,8 +230,8 @@ def _Install(vm):
   """Installs the YCSB and, if needed, hdrhistogram package on the VM."""
   vm.Install('openjdk')
   vm.Install('curl')
-  ycsb_url = ('https://github.com/brianfrankcooper/YCSB/releases/'
-              'download/{0}/ycsb-{0}.tar.gz').format(FLAGS.ycsb_version)
+  ycsb_url = (_ycsb_tar_url or FLAGS.ycsb_tar_url or
+              YCSB_URL_TEMPLATE.format(FLAGS.ycsb_version))
   install_cmd = ('mkdir -p {0} && curl -L {1} | '
                  'tar -C {0} --strip-components=1 -xzf -')
   vm.RemoteCommand(install_cmd.format(YCSB_DIR, ycsb_url))
@@ -581,7 +596,9 @@ def _CombineResults(result_list, measurement_type, combined_hdr):
       result.append((k, h1.get(k, 0) + h2.get(k, 0)))
     return result
 
-  def CombineTimeseries(combined_series, individual_series, combined_weight):
+  combined_weights = {}
+
+  def CombineTimeseries(combined_series, individual_series):
     """Combines two timeseries of average latencies.
 
     Args:
@@ -589,8 +606,6 @@ def _CombineResults(result_list, measurement_type, combined_hdr):
           individual series is being merged.
       individual_series: A list representing the timeseries being merged with
           the combined series.
-      combined_weight: The number of individual series that the combined series
-          represents. This is needed to correctly weight the average latencies.
 
     Returns:
       A list representing the new combined series.
@@ -602,16 +617,18 @@ def _CombineResults(result_list, measurement_type, combined_hdr):
     """
     combined_series = dict(combined_series)
     individual_series = dict(individual_series)
+    timestamps = set(combined_series) | set(individual_series)
 
     result = []
-    for timestamp in sorted(combined_series):
+    for timestamp in sorted(timestamps):
       if timestamp not in individual_series:
-        # The combined timeseries will not contain a timestamp unless all
-        # individual series also contain that timestamp. This should only
-        # happen if the clients run for different amounts of time such as
-        # during loading and should be limited to timestamps at the end of the
-        # run.
         continue
+      if timestamp not in combined_weights:
+        combined_weights[timestamp] = 1.0
+      if timestamp not in combined_series:
+        result.append((timestamp, individual_series[timestamp]))
+        continue
+
       # This computes a new combined average latency by dividing the sum of
       # request latencies by the sum of request counts for the time period.
       # The sum of latencies for an individual series is assumed to be "1",
@@ -620,19 +637,18 @@ def _CombineResults(result_list, measurement_type, combined_hdr):
       # The request count for an individual series is 1 / average latency.
       # This means the request count for the combined series is
       # combined_weight * 1 / average latency.
+      combined_weight = combined_weights[timestamp]
       average_latency = (combined_weight + 1.0) / (
           (combined_weight / combined_series[timestamp]) +
           (1.0 / individual_series[timestamp]))
       result.append((timestamp, average_latency))
+      combined_weights[timestamp] += 1.0
     return result
 
   result = copy.deepcopy(result_list[0])
   DropUnaggregated(result)
 
-  # Used for aggregating timeseries. See CombineTimeseries().
-  series_weight = 0.0
   for indiv in result_list[1:]:
-    series_weight += 1.0
     for group_name, group in six.iteritems(indiv['groups']):
       if group_name not in result['groups']:
         logging.warn('Found result group "%s" in individual YCSB result, '
@@ -669,7 +685,7 @@ def _CombineResults(result_list, measurement_type, combined_hdr):
       elif measurement_type == TIMESERIES:
         result['groups'][group_name][TIMESERIES] = CombineTimeseries(
             result['groups'][group_name][TIMESERIES],
-            group[TIMESERIES], series_weight)
+            group[TIMESERIES])
       else:
         result['groups'][group_name].pop(HISTOGRAM, None)
     result['client'] = ' '.join((result['client'], indiv['client']))
@@ -724,9 +740,12 @@ def _CreateSamples(ycsb_result, include_histogram=False, **kwargs):
     List of sample.Sample objects.
   """
   stage = 'load' if ycsb_result['command_line'].endswith('-load') else 'run'
-  base_metadata = {'command_line': ycsb_result['command_line'],
-                   'stage': stage,
-                   'ycsb_version': FLAGS.ycsb_version}
+  base_metadata = {
+      'command_line': ycsb_result['command_line'],
+      'stage': stage,
+      'ycsb_tar_url': _ycsb_tar_url,
+      'ycsb_version': FLAGS.ycsb_version
+  }
   base_metadata.update(kwargs)
 
   for group_name, group in six.iteritems(ycsb_result['groups']):
@@ -886,8 +905,6 @@ class YCSBExecutor(object):
     """
     results = []
 
-    remote_path = posixpath.join(INSTALL_DIR,
-                                 os.path.basename(workload_file))
     kwargs.setdefault('threads', self._default_preload_threads)
     if FLAGS.ycsb_record_count:
       kwargs.setdefault('recordcount', FLAGS.ycsb_record_count)
@@ -911,7 +928,12 @@ class YCSBExecutor(object):
         for i in range(len(vms))
     ]
 
+    remote_path = posixpath.join(INSTALL_DIR,
+                                 os.path.basename(workload_file))
+
     def PushWorkload(vm):
+      if os.path.basename(remote_path):
+        vm.RemoteCommand('sudo rm -f ' + remote_path)
       vm.PushFile(workload_file, remote_path)
     vm_util.RunThreaded(PushWorkload, list(set(vms)))
 
@@ -1128,9 +1150,18 @@ class YCSBExecutor(object):
     hdrhistograms = {}
     for grouptype in HDRHISTOGRAM_GROUPS:
       worker_vm = vms[0]
+      hdr, _ = worker_vm.RemoteCommand(
+          'touch {0}{1}.hdr && tail -1 {0}{1}.hdr'.format(
+              hdr_files_dir, grouptype))
+      # It's possible that there is no result for certain group, e.g., read
+      # only, update only.
+      if not hdr:
+        continue
+
       for vm in vms[1:]:
         hdr, _ = vm.RemoteCommand(
-            'tail -1 {0}{1}.hdr'.format(hdr_files_dir, grouptype))
+            'touch {0}{1}.hdr && tail -1 {0}{1}.hdr'.format(
+                hdr_files_dir, grouptype))
         worker_vm.RemoteCommand(
             'sudo chmod 777 {1}{2}.hdr && echo "{0}" >> {1}{2}.hdr'.format(
                 hdr[:-1], hdr_files_dir, grouptype))
@@ -1180,6 +1211,9 @@ class YCSBExecutor(object):
     Returns:
       List of sample.Sample objects.
     """
-    load_samples = self.Load(vms, workloads=workloads, load_kwargs=load_kwargs)
+    load_samples = []
+    if not FLAGS.ycsb_skip_load_stage:
+      load_samples = self.Load(vms, workloads=workloads,
+                               load_kwargs=load_kwargs)
     run_samples = self.Run(vms, workloads=workloads, run_kwargs=run_kwargs)
     return load_samples + run_samples
