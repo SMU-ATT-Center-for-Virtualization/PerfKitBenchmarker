@@ -21,9 +21,13 @@ the corresponding provider directory as a subclass of BaseDpbService.
 
 import abc
 import datetime
+import logging
+import posixpath
 
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import resource
+from perfkitbenchmarker import vm_util
+from perfkitbenchmarker.linux_packages import hadoop
 
 flags.DEFINE_string(
     'static_dpb_service_instance', None,
@@ -44,6 +48,7 @@ FLAGS = flags.FLAGS
 DATAPROC = 'dataproc'
 DATAFLOW = 'dataflow'
 EMR = 'emr'
+UNMANAGED_DPB_SVC_YARN_CLUSTER = 'unmanaged_dpb_svc_yarn_cluster'
 
 # Default number of workers to be used in the dpb service implementation
 DEFAULT_WORKER_COUNT = 2
@@ -129,13 +134,15 @@ class BaseDpbService(resource.BaseResource):
 
   @abc.abstractmethod
   def SubmitJob(self,
-                jarfile,
-                classname,
+                jarfile=None,
+                classname=None,
                 pyspark_file=None,
                 query_file=None,
                 job_poll_interval=None,
                 job_stdout_file=None,
                 job_arguments=None,
+                job_files=None,
+                job_jars=None,
                 job_type=None):
     """Submit a data processing job to the backend.
 
@@ -150,8 +157,11 @@ class BaseDpbService(resource.BaseResource):
         Not used by providers for which submit job is a synchronous operation.
       job_stdout_file: String giving the location of the file in which to put
         the standard out of the job.
-      job_arguments: List of string arguments to pass to classname. These are
-       not the arguments passed to the wrapper that submits the job.
+      job_arguments: List of string arguments to pass to driver application.
+        These are not the arguments passed to the wrapper that submits the job.
+      job_files: Files passed to a Spark Application to be distributed to
+        executors.
+      job_jars: Jars to pass to the application
       job_type: Spark or Hadoop job
 
     Returns:
@@ -252,11 +262,9 @@ class BaseDpbService(resource.BaseResource):
     ]
     start_time = datetime.datetime.now()
     stats = self.SubmitJob(
-        generate_jar,
-        None,
+        jarfile=generate_jar,
         job_poll_interval=5,
         job_arguments=generate_args,
-        job_stdout_file=None,
         job_type=generate_job_category)
     end_time = datetime.datetime.now()
     return self._ProcessWallTime(start_time, end_time), stats
@@ -283,11 +291,9 @@ class BaseDpbService(resource.BaseResource):
     sort_args = [TERASORT, base_dir + TERAGEN, base_dir + TERASORT]
     start_time = datetime.datetime.now()
     stats = self.SubmitJob(
-        sort_jar,
-        None,
+        jarfile=sort_jar,
         job_poll_interval=5,
         job_arguments=sort_args,
-        job_stdout_file=None,
         job_type=sort_job_category)
     end_time = datetime.datetime.now()
     return self._ProcessWallTime(start_time, end_time), stats
@@ -311,11 +317,9 @@ class BaseDpbService(resource.BaseResource):
     validate_args = [TERAVALIDATE, base_dir + TERASORT, base_dir + TERAVALIDATE]
     start_time = datetime.datetime.now()
     stats = self.SubmitJob(
-        validate_jar,
-        None,
+        jarfile=validate_jar,
         job_poll_interval=5,
         job_arguments=validate_args,
-        job_stdout_file=None,
         job_type=validate_job_category)
     end_time = datetime.datetime.now()
     return self._ProcessWallTime(start_time, end_time), stats
@@ -345,3 +349,94 @@ class BaseDpbService(resource.BaseResource):
     )
     end_time = datetime.datetime.now()
     return self._ProcessWallTime(start_time, end_time), stats
+
+
+class UnmanagedDpbService(BaseDpbService):
+  """Object representing an un-managed dpb service."""
+
+  @abc.abstractmethod
+  def SubmitJob(self,
+                jarfile=None,
+                classname=None,
+                pyspark_file=None,
+                query_file=None,
+                job_poll_interval=None,
+                job_stdout_file=None,
+                job_arguments=None,
+                job_files=None,
+                job_jars=None,
+                job_type=None):
+    """Submit a data processing job to the backend."""
+    pass
+
+
+class UnmanagedDpbServiceYarnCluster(UnmanagedDpbService):
+  """Object representing an un-managed dpb service yarn cluster."""
+
+  SERVICE_TYPE = UNMANAGED_DPB_SVC_YARN_CLUSTER
+  JOB_JARS = {
+      'hadoop': {
+          'terasort':
+              '/opt/pkb/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-examples-*.jar'
+      },
+  }
+
+  def __init__(self, dpb_service_spec):
+    super(UnmanagedDpbServiceYarnCluster, self).__init__(dpb_service_spec)
+    #  Dictionary to hold the cluster vms.
+    self.vms = {}
+    self.dpb_service_type = UNMANAGED_DPB_SVC_YARN_CLUSTER
+
+  def _Create(self):
+    """Create an un-managed yarn cluster."""
+    logging.info('Should have created vms by now.')
+    logging.info(str(self.vms))
+
+    # need to fix this to install spark
+    def InstallHadoop(vm):
+      vm.Install('hadoop')
+
+    vm_util.RunThreaded(InstallHadoop, self.vms['worker_group'] +
+                        self.vms['master_group'])
+    self.leader = self.vms['master_group'][0]
+    hadoop.ConfigureAndStart(self.leader,
+                             self.vms['worker_group'])
+
+  def SubmitJob(self,
+                jarfile=None,
+                classname=None,
+                pyspark_file=None,
+                query_file=None,
+                job_poll_interval=None,
+                job_stdout_file=None,
+                job_arguments=None,
+                job_files=None,
+                job_jars=None,
+                job_type=None):
+    """Submit a data processing job to the backend."""
+    if job_type != self.HADOOP_JOB_TYPE:
+      raise NotImplementedError
+    cmd_list = [posixpath.join(hadoop.HADOOP_BIN, 'hadoop'), 'jar', jarfile]
+    if job_arguments:
+      cmd_list += job_arguments
+    cmd_string = ' '.join(cmd_list)
+
+    start_time = datetime.datetime.now()
+    stdout, _ = self.leader.RemoteCommand(cmd_string)
+    end_time = datetime.datetime.now()
+
+    if job_stdout_file:
+      with open(job_stdout_file, 'w') as f:
+        f.write(stdout)
+    return {SUCCESS: True,
+            RUNTIME: (end_time - start_time).total_seconds()}
+
+  def _Delete(self):
+    pass
+
+  def GetExecutionJar(self, job_category, job_type):
+    """Retrieve execution jar corresponding to the job_category and job_type."""
+    if (job_category not in self.JOB_JARS or
+        job_type not in self.JOB_JARS[job_category]):
+      raise NotImplementedError()
+    return self.JOB_JARS[job_category][job_type]

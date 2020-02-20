@@ -27,18 +27,13 @@ from perfkitbenchmarker.linux_benchmarks import netperf_benchmark
 
 FLAGS = flags.FLAGS
 
-# We set the default to 128KB (131072 bytes) to override the Linux default
-# of 16K so that we can achieve the "link rate".
-flags.DEFINE_integer('container_netperf_tcp_stream_send_size_in_bytes', 131072,
-                     'Send size to use for TCP_STREAM tests (netperf -m flag)')
-
-BENCHMARK_NAME = 'container_netperf'
+BENCHMARK_NAME = 'container_throughput_latency_jitter'
 BENCHMARK_CONFIG = """
-container_netperf:
+container_throughput_latency_jitter:
   description: Run netperf between containers.
   container_specs:
-    netperf:
-      image: netperf
+    throughput_latency_jitter:
+      image: throughput_latency_jitter
       cpus: 2
       memory: 4GiB
   container_registry: {}
@@ -70,7 +65,7 @@ def Prepare(benchmark_spec):
         required to run the benchmark.
   """
   cluster = benchmark_spec.container_cluster
-  cluster.DeployContainer('netperf', benchmark_spec.container_specs['netperf'])
+  cluster.DeployContainer('throughput-latency-jitter', benchmark_spec.container_specs['throughput_latency_jitter'])
 
 
 def Run(benchmark_spec):
@@ -85,21 +80,29 @@ def Run(benchmark_spec):
   """
   samples = []
   cluster = benchmark_spec.container_cluster
-  container_0 = cluster.containers['netperf'][0]
-  spec = benchmark_spec.container_specs['netperf']
+  print(cluster.containers)
+  container_0 = cluster.containers['throughput-latency-jitter'][0]
+  spec = benchmark_spec.container_specs['throughput_latency_jitter']
+  print("SPECS")
+  print(benchmark_spec.container_specs)
   spec.command = ['netperf',
                   '-t', 'TCP_STREAM',
                   '-H', container_0.ip_address,
                   '-l', '100',
                   '--',
-                  '-m', FLAGS.container_netperf_tcp_stream_send_size_in_bytes,
                   '-o', netperf_benchmark.OUTPUT_SELECTOR]
-  cluster.DeployContainer('netperf', benchmark_spec.container_specs['netperf'])
-  container_1 = cluster.containers['netperf'][1]
+  cluster.DeployContainer('throughput-latency-jitter', benchmark_spec.container_specs['throughput_latency_jitter'])
+  container_1 = cluster.containers['throughput_latency_jitter'][1]
   container_1.WaitForExit()
   throughput_sample, _, _ = netperf_benchmark.ParseNetperfOutput(
       container_1.GetLogs(), {}, 'TCP_STREAM', False)
   samples.append(throughput_sample)
+
+  spec.command = ['iperf', '-c', container_0.ip_address]
+  container_2 = cluster.DeployContainer('throughput-latency-jitter', spec)
+  container_2.WaitForExit()
+  print(container_2.GetLogs())
+
   return samples
 
 

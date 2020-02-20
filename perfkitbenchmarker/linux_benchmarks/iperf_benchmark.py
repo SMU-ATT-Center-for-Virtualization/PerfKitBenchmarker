@@ -27,12 +27,11 @@ from perfkitbenchmarker import configs
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
-from perfkitbenchmarker import flag_util
 
-flag_util.DEFINE_integerlist('iperf_sending_thread_count', flag_util.IntegerList([1]),
-                             'server for sending traffic. Iperf'
-                             'will run once for each value in the list', 
-                             module_name=__name__)
+flags.DEFINE_integer('iperf_sending_thread_count', 1,
+                     'Number of connections to make to the '
+                     'server for sending traffic.',
+                     lower_bound=1)
 flags.DEFINE_integer('iperf_runtime_in_seconds', 60,
                      'Number of seconds to run iperf.',
                      lower_bound=1)
@@ -77,8 +76,7 @@ def Prepare(benchmark_spec):
             vms)))
 
   for vm in vms:
-    if not FLAGS.skip_prepare:
-      vm.Install('iperf')
+    vm.Install('iperf')
     if vm_util.ShouldRunOnExternalIpAddress():
       vm.AllowPort(IPERF_PORT)
     stdout, _ = vm.RemoteCommand(('nohup iperf --server --port %s &> /dev/null'
@@ -88,7 +86,7 @@ def Prepare(benchmark_spec):
 
 
 @vm_util.Retry(max_retries=IPERF_RETRIES)
-def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_type):
+def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, ip_type):
   """Run iperf using sending 'vm' to connect to 'ip_address'.
 
   Args:
@@ -99,19 +97,17 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   Returns:
     A Sample.
   """
-  iperf_cmd = ('iperf -e --client %s --port %s --format m --time %s -P %s' %
+  iperf_cmd = ('iperf --client %s --port %s --format m --time %s -P %s' %
                (receiving_ip_address, IPERF_PORT,
                 FLAGS.iperf_runtime_in_seconds,
-                thread_count))
+                FLAGS.iperf_sending_thread_count))
   # the additional time on top of the iperf runtime is to account for the
   # time it takes for the iperf process to start and exit
-  timeout_buffer = FLAGS.iperf_timeout or 30 + thread_count
+  timeout_buffer = FLAGS.iperf_timeout or 30 + FLAGS.iperf_sending_thread_count
   stdout, _ = sending_vm.RemoteCommand(iperf_cmd, should_log=True,
                                        timeout=FLAGS.iperf_runtime_in_seconds +
                                        timeout_buffer)
 
-  print("OUTPUT")
-  print(stdout)
   # Example output from iperf that needs to be parsed
   # STDOUT: ------------------------------------------------------------
   # Client connecting to 10.237.229.201, TCP port 5001
@@ -128,19 +124,6 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   # [  3]  0.0-60.0 sec  3738 MBytes   522 Mbits/sec
   # [SUM]  0.0-60.0 sec  14010 MBytes  1957 Mbits/sec
 
-
-  #NEW OUTPUT
-#   ------------------------------------------------------------
-# Client connecting to 172.17.0.5, TCP port 20000 with pid 4167
-# Write buffer size: 0.12 MByte
-# TCP window size: 1.42 MByte (default)
-# ------------------------------------------------------------
-# [  3] local 172.17.0.6 port 45518 connected with 172.17.0.5 port 20000 (ct=0.08 ms)
-# [ ID] Interval        Transfer    Bandwidth       Write/Err  Rtry     Cwnd/RTT        NetPwr
-# [  3] 0.00-60.00 sec  236112 MBytes  33011 Mbits/sec  1888894/0          0       -1K/25 us  165054051.49
-
-
-
   thread_values = re.findall(r'\[SUM].*\s+(\d+\.?\d*).Mbits/sec', stdout)
   if not thread_values:
     # If there is no sum you have try and figure out an estimate
@@ -148,10 +131,10 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     # below will tend to overestimate a bit.
     thread_values = re.findall('\[.*\d+\].*\s+(\d+\.?\d*).Mbits/sec', stdout)
 
-    if len(thread_values) != thread_count:
+    if len(thread_values) != FLAGS.iperf_sending_thread_count:
       raise ValueError('Only %s out of %s iperf threads reported a'
                        ' throughput value.' %
-                       (len(thread_values), thread_count))
+                       (len(thread_values), FLAGS.iperf_sending_thread_count))
 
   total_throughput = 0.0
   for value in thread_values:
@@ -162,7 +145,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       'receiving_machine_type': receiving_vm.machine_type,
       'receiving_zone': receiving_vm.zone,
       'sending_machine_type': sending_vm.machine_type,
-      'sending_thread_count': thread_count,
+      'sending_thread_count': FLAGS.iperf_sending_thread_count,
       'sending_zone': sending_vm.zone,
       'runtime_in_seconds': FLAGS.iperf_runtime_in_seconds,
       'ip_type': ip_type
@@ -186,24 +169,21 @@ def Run(benchmark_spec):
   logging.info('Iperf Results:')
 
   # Send traffic in both directions
-  for thread_count in FLAGS.iperf_sending_thread_count:
-    for sending_vm, receiving_vm in vms, reversed(vms):
-      # Send using external IP addresses
-      if vm_util.ShouldRunOnExternalIpAddress():
-        results.append(_RunIperf(sending_vm,
-                                 receiving_vm,
-                                 receiving_vm.ip_address,
-                                 thread_count,
-                                 'external'))
+  for sending_vm, receiving_vm in vms, reversed(vms):
+    # Send using external IP addresses
+    if vm_util.ShouldRunOnExternalIpAddress():
+      results.append(_RunIperf(sending_vm,
+                               receiving_vm,
+                               receiving_vm.ip_address,
+                               'external'))
 
-      # Send using internal IP addresses
-      if vm_util.ShouldRunOnInternalIpAddress(sending_vm,
-                                              receiving_vm):
-        results.append(_RunIperf(sending_vm,
-                                 receiving_vm,
-                                 receiving_vm.internal_ip,
-                                 thread_count,
-                                 'internal'))
+    # Send using internal IP addresses
+    if vm_util.ShouldRunOnInternalIpAddress(sending_vm,
+                                            receiving_vm):
+      results.append(_RunIperf(sending_vm,
+                               receiving_vm,
+                               receiving_vm.internal_ip,
+                               'internal'))
 
   return results
 

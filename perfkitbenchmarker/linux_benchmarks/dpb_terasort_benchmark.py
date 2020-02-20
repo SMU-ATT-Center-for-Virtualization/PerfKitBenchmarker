@@ -26,6 +26,7 @@ A full TeraSort benchmark run consists of the following three steps:
 
 The benchmark reports the detailed latency of executing each phase.
 """
+from __future__ import division
 
 import logging
 
@@ -42,20 +43,22 @@ BENCHMARK_CONFIG = """
 dpb_terasort_benchmark:
   description: Run terasort on dataproc and emr
   dpb_service:
-    service_type: emr
+    service_type: unmanaged_dpb_svc_yarn_cluster
     worker_group:
       vm_spec:
         GCP:
-          machine_type: n1-standard-1
+          machine_type: n1-standard-4
         AWS:
           machine_type: m5.xlarge
       disk_spec:
         GCP:
-          disk_size: 200
+          disk_size: 500
           disk_type: pd-standard
+          mount_point: /scratch_ts
         AWS:
           disk_size: 500
           disk_type: st1
+          mount_point: /scratch_ts
     worker_count: 2
 """
 
@@ -73,7 +76,8 @@ flags.DEFINE_bool(
 
 FLAGS = flags.FLAGS
 
-SUPPORTED_DPB_BACKENDS = [dpb_service.DATAPROC, dpb_service.EMR]
+SUPPORTED_DPB_BACKENDS = [dpb_service.DATAPROC, dpb_service.EMR,
+                          dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER]
 JOB_CATEGORY = BaseDpbService.HADOOP_JOB_TYPE
 JOB_TYPE = 'terasort'
 
@@ -97,6 +101,11 @@ def CheckPrerequisites(benchmark_config):
     raise errors.Config.InvalidValue(
         'Invalid backend {} for terasort. Not in:{}'.format(
             dpb_service_type, str(SUPPORTED_DPB_BACKENDS)))
+
+  if (dpb_service_type == dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER and
+      FLAGS.dpb_terasort_storage_type == _FS_TYPE_PERSISTENT):
+    raise errors.Config.InvalidValue(
+        '{} only supports ephemral terasort.'.format(dpb_service_type))
 
 
 def Prepare(benchmark_spec):
@@ -138,7 +147,7 @@ def Run(benchmark_spec):
   metadata.update({
       'dpb_terasort_storage_type': FLAGS.dpb_terasort_storage_type})
   metadata.update({'terasort_num_record': FLAGS.dpb_terasort_num_records})
-  storage_in_gb = (FLAGS.dpb_terasort_num_records * 100) / (1000 * 1000 * 1000)
+  storage_in_gb = (FLAGS.dpb_terasort_num_records * 100) // (1000 * 1000 * 1000)
   metadata.update({'terasort_dataset_size_in_GB': storage_in_gb})
   logging.info('metadata %s ', str(metadata))
 
@@ -165,10 +174,17 @@ def Run(benchmark_spec):
     logging.info(phase_stats)
     results.append(sample.Sample(phase + '_wall_time', wall_time, 'seconds',
                                  metadata))
+
+    if 'running_time' in phase_stats:
+      running_time = phase_stats['running_time']
+    else:
+      running_time = wall_time
+
     results.append(sample.Sample(phase + '_run_time',
-                                 phase_stats['running_time'],
+                                 running_time,
                                  'seconds', metadata))
-    cumulative_runtime += phase_stats['running_time']
+
+    cumulative_runtime += running_time
   results.append(sample.Sample('cumulative_runtime', cumulative_runtime,
                                'seconds', metadata))
   return results
