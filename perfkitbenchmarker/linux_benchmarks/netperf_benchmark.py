@@ -15,7 +15,7 @@
 """Runs plain netperf in a few modes.
 
 docs:
-http://www.netperf.org/svn/netperf2/tags/netperf-2.4.5/doc/netperf.html#TCP_005fRR
+https://hewlettpackard.github.io/netperf/doc/netperf.html
 manpage: http://manpages.ubuntu.com/manpages/maverick/man1/netperf.1.html
 
 Runs TCP_RR, TCP_CRR, and TCP_STREAM benchmarks from netperf across two
@@ -27,18 +27,19 @@ from __future__ import division
 from __future__ import print_function
 import collections
 import csv
-import io
 import json
 import logging
 import os
 import re
 from perfkitbenchmarker import configs
 from perfkitbenchmarker import data
+from perfkitbenchmarker import errors
 from perfkitbenchmarker import flag_util
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.linux_packages import netperf
+import six
 from six.moves import zip
 
 flags.DEFINE_integer('netperf_max_iter', None,
@@ -67,12 +68,12 @@ flags.DEFINE_integer('netperf_thinktime_run_length', 0,
                      'The number of contiguous numbers to sum at a time in the '
                      'thinktime array.')
 flags.DEFINE_integer('netperf_udp_stream_send_size_in_bytes', 1024,
-                     'The number of contiguous numbers to sum at a time in the '
-                     'thinktime array.')
+                     'Send size to use for UDP_STREAM tests (netperf -m flag)',
+                     lower_bound=1, upper_bound=65507)
+# We set the default to 128KB (131072 bytes) to override the Linux default
+# of 16K so that we can achieve the "link rate".
 flags.DEFINE_integer('netperf_tcp_stream_send_size_in_bytes', 131072,
-                     'The number of contiguous numbers to sum at a time in the '
-                     'thinktime array.')
-
+                     'Send size to use for TCP_STREAM tests (netperf -m flag)')
 
 ALL_BENCHMARKS = ['TCP_RR', 'TCP_CRR', 'TCP_STREAM', 'UDP_RR', 'UDP_STREAM']
 flags.DEFINE_list('netperf_benchmarks', ALL_BENCHMARKS,
@@ -139,10 +140,11 @@ def PrepareNetperf(vm):
   # and enable keepalive on the control socket in addition to changing the
   # system defaults below.
 
-  vm.ApplySysctlPersistent({
-      'net.ipv4.tcp_keepalive_time': 60,
-      'net.ipv4.tcp_keepalive_intvl': 60,
-  })
+  if vm.IS_REBOOTABLE:
+    vm.ApplySysctlPersistent({
+        'net.ipv4.tcp_keepalive_time': 60,
+        'net.ipv4.tcp_keepalive_intvl': 60,
+    })
 
 
 def Prepare(benchmark_spec):
@@ -276,7 +278,7 @@ def ParseNetperfOutput(stdout, metadata, benchmark_name,
   # Maximum Latency Microseconds\n
   # 1405.50,Trans/s,2.522,4,783.80,683,735,841,600,900\n
   try:
-    fp = io.StringIO(stdout)
+    fp = six.StringIO(stdout)
     # "-o" flag above specifies CSV output, but there is one extra header line:
     banner = next(fp)
     assert banner.startswith('MIGRATED'), stdout
@@ -284,9 +286,15 @@ def ParseNetperfOutput(stdout, metadata, benchmark_name,
     results = next(r)
     logging.info('Netperf Results: %s', results)
     assert 'Throughput' in results
-  except:
-    raise Exception('Netperf ERROR: Failed to parse stdout. STDOUT: %s' %
-                    stdout)
+  except (StopIteration, AssertionError):
+    # The output returned by netperf was unparseable - usually due to a broken
+    # connection or other error.  Raise KnownIntermittentError to signal the
+    # benchmark can be retried.  Do not automatically retry as an immediate
+    # retry on these VMs may be adveresly affected (e.g. burstable credits
+    # partially used)
+    message = 'Netperf ERROR: Failed to parse stdout. STDOUT: %s' % stdout
+    logging.error(message)
+    raise errors.Benchmarks.KnownIntermittentError(message)
 
   # Update the metadata with some additional infos
   meta_keys = [('Confidence Iterations Run', 'confidence_iter'),
@@ -357,8 +365,8 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   """
   enable_latency_histograms = FLAGS.netperf_enable_histograms or num_streams > 1
   # Throughput benchmarks don't have latency histograms
-  enable_latency_histograms = enable_latency_histograms and \
-      benchmark_name != 'TCP_STREAM'
+  enable_latency_histograms = (enable_latency_histograms and
+                               (benchmark_name not in ['TCP_STREAM', 'UDP_STREAM']))
   # Flags:
   # -o specifies keys to include in CSV output.
   # -j keeps additional latency numbers
@@ -375,109 +383,32 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   remote_cmd_timeout = \
       FLAGS.netperf_test_length * (FLAGS.netperf_max_iter or 1) + 300
 
-  metadata = {}
+  metadata = {'netperf_test_length': FLAGS.netperf_test_length,
+              'sending_thread_count': num_streams,
+              'max_iter': FLAGS.netperf_max_iter or 1}
 
-  #TODO change timeout and stuff depending on netperf flags and netperf test
-  if (benchmark_name.upper() == 'TCP_RR' or benchmark_name.upper() == 'UDP_RR') and FLAGS.netperf_rr_test_length:
-    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
-                   '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
-                   ' -- '
-                   '-P ,{{data_port}} '
-                   '-o {output_selector}').format(
-                       netperf_path=netperf.NETPERF_PATH,
-                       benchmark_name=benchmark_name,
-                       server_ip=server_ip,
-                       length=(-1 * abs(FLAGS.netperf_rr_test_length)),
-                       output_selector=OUTPUT_SELECTOR,
-                       confidence=confidence, verbosity=verbosity)
+  netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
+                 '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
+                 ' -- '
+                 '-P ,{{data_port}} '
+                 '-o {output_selector}').format(
+                     netperf_path=netperf.NETPERF_PATH,
+                     benchmark_name=benchmark_name,
+                     server_ip=server_ip,
+                     length=FLAGS.netperf_test_length,
+                     output_selector=OUTPUT_SELECTOR,
+                     confidence=confidence,
+                     verbosity=verbosity)
 
-    remote_cmd_timeout = \
-      FLAGS.netperf_rr_test_length * 0.0001 * (FLAGS.netperf_max_iter or 1) + 300
-
-    # Metadata to attach to samples
-    metadata = {'netperf_test_length': FLAGS.netperf_rr_test_length,
-                'netperf_test_length_unit': 'transactions',
-                'max_iter': FLAGS.netperf_max_iter or 1,
-                'sending_thread_count': num_streams}
-
-  elif benchmark_name.upper() == 'UDP_STREAM':
-    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
-                   '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
-                   ' -- '
-                   '-P ,{{data_port}} '
-                   '-R 1 '
-                   '-m {send_size} '
-                   '-o {output_selector}').format(
-                       netperf_path=netperf.NETPERF_PATH,
-                       benchmark_name=benchmark_name,
-                       server_ip=server_ip,
-                       length=FLAGS.netperf_test_length,
-                       output_selector=OUTPUT_SELECTOR,
-                       confidence=confidence, 
-                       verbosity=verbosity,
-                       send_size = FLAGS.netperf_udp_stream_send_size_in_bytes)
-
-    metadata = {'netperf_test_length': FLAGS.netperf_test_length,
-                'netperf_send_size_in_bytes' : FLAGS.netperf_udp_stream_send_size_in_bytes,
-                'netperf_test_length_unit': 'seconds',
-                'max_iter': FLAGS.netperf_max_iter or 1,
-                'sending_thread_count': num_streams}
-
+  if benchmark_name.upper() == 'UDP_STREAM':
+    netperf_cmd += (' -R 1 -m {send_size} -M {send_size} '.format(
+                    send_size=FLAGS.netperf_udp_stream_send_size_in_bytes))
+    metadata['netperf_send_size_in_bytes'] = FLAGS.netperf_udp_stream_send_size_in_bytes
 
   elif benchmark_name.upper() == 'TCP_STREAM':
-    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
-                   '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
-                   ' -- '
-                   '-P ,{{data_port}} '
-                   '-R 1 '
-                   '-m {send_size} '
-                   '-o {output_selector}').format(
-                       netperf_path=netperf.NETPERF_PATH,
-                       benchmark_name=benchmark_name,
-                       server_ip=server_ip,
-                       length=FLAGS.netperf_test_length,
-                       output_selector=OUTPUT_SELECTOR,
-                       confidence=confidence, 
-                       verbosity=verbosity,
-                       send_size = FLAGS.netperf_tcp_stream_send_size_in_bytes)
-
-    metadata = {'netperf_test_length': FLAGS.netperf_test_length,
-                'netperf_send_size_in_bytes' : FLAGS.netperf_tcp_stream_send_size_in_bytes,
-                'netperf_test_length_unit': 'seconds',
-                'max_iter': FLAGS.netperf_max_iter or 1,
-                'sending_thread_count': num_streams}
-
-
-  else:
-    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
-                   '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
-                   ' -- '
-                   '-P ,{{data_port}} '
-                   '-o {output_selector}').format(
-                       netperf_path=netperf.NETPERF_PATH,
-                       benchmark_name=benchmark_name,
-                       server_ip=server_ip,
-                       length=FLAGS.netperf_test_length,
-                       output_selector=OUTPUT_SELECTOR,
-                       confidence=confidence, verbosity=verbosity)
-
-    metadata = {'netperf_test_length': FLAGS.netperf_test_length,
-                'netperf_test_length_unit': 'seconds',
-                'max_iter': FLAGS.netperf_max_iter or 1,
-                'sending_thread_count': num_streams}
-
-  #ORIGINAL FROM MASTER
-  # netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
-  #                '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
-  #                ' -- '
-  #                '-P ,{{data_port}} '
-  #                '-o {output_selector}').format(
-  #                    netperf_path=netperf.NETPERF_PATH,
-  #                    benchmark_name=benchmark_name,
-  #                    server_ip=server_ip,
-  #                    length=FLAGS.netperf_test_length,
-  #                    output_selector=OUTPUT_SELECTOR,
-  #                    confidence=confidence, verbosity=verbosity)
+    netperf_cmd += (' -m {send_size} -M {send_size} '.format(
+                    send_size=FLAGS.netperf_tcp_stream_send_size_in_bytes))
+    metadata['netperf_send_size_in_bytes'] = FLAGS.netperf_tcp_stream_send_size_in_bytes
 
   if FLAGS.netperf_thinktime != 0:
     netperf_cmd += (' -X {thinktime},{thinktime_array_size},'
@@ -491,7 +422,8 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
 
   # Give the remote script the max possible test length plus 5 minutes to
   # complete
-  
+  remote_cmd_timeout = \
+      FLAGS.netperf_test_length * (FLAGS.netperf_max_iter or 1) + 300
   remote_cmd = ('./%s --netperf_cmd="%s" --num_streams=%s --port_start=%s' %
                 (REMOTE_SCRIPT, netperf_cmd, num_streams, PORT_START))
   remote_stdout, _ = vm.RobustRemoteCommand(remote_cmd, should_log=True,
