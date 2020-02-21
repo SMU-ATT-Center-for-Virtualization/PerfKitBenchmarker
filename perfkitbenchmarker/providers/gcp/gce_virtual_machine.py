@@ -786,49 +786,51 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
     return self.preemptible_status_code
 
 
-class ContainerizedGceVirtualMachine(GceVirtualMachine,
-                                     linux_vm.ContainerizedDebianMixin):
-  DEFAULT_IMAGE = UBUNTU_IMAGE
-
-
-class DebianBasedGceVirtualMachine(GceVirtualMachine,
-                                   linux_vm.DebianMixin):
-  DEFAULT_IMAGE = UBUNTU_IMAGE
-
-
 class Debian9BasedGceVirtualMachine(GceVirtualMachine,
                                     linux_vm.Debian9Mixin):
   DEFAULT_IMAGE_FAMILY = 'debian-9'
   DEFAULT_IMAGE_PROJECT = 'debian-cloud'
 
 
-class RhelBasedGceVirtualMachine(GceVirtualMachine,
-                                 linux_vm.RhelMixin):
-  DEFAULT_IMAGE = RHEL_IMAGE
-
-  def __init__(self, vm_spec):
-    super(RhelBasedGceVirtualMachine, self).__init__(vm_spec)
-    self.python_package_config = 'python'
-    self.python_dev_package_config = 'python-devel'
-    self.python_pip_package_config = 'python2-pip'
+class Debian10BasedGceVirtualMachine(GceVirtualMachine, linux_vm.Debian10Mixin):
+  DEFAULT_IMAGE_FAMILY = 'debian-10'
+  DEFAULT_IMAGE_PROJECT = 'debian-cloud'
 
 
-class Centos7BasedGceVirtualMachine(GceVirtualMachine,
-                                    linux_vm.Centos7Mixin):
+class Rhel7BasedGceVirtualMachine(GceVirtualMachine, linux_vm.Rhel7Mixin):
+  DEFAULT_IMAGE_FAMILY = 'rhel-7'
+  DEFAULT_IMAGE_PROJECT = 'rhel-cloud'
+
+
+class VersionlessRhelBasedGceVirtualMachine(
+    linux_vm.VersionlessRhelMixin, Rhel7BasedGceVirtualMachine):
+  pass
+
+
+class Rhel8BasedGceVirtualMachine(GceVirtualMachine, linux_vm.Rhel8Mixin):
+  DEFAULT_IMAGE_FAMILY = 'rhel-8'
+  DEFAULT_IMAGE_PROJECT = 'rhel-cloud'
+
+
+class CentOs7BasedGceVirtualMachine(GceVirtualMachine, linux_vm.CentOs7Mixin):
   DEFAULT_IMAGE_FAMILY = 'centos-7'
   DEFAULT_IMAGE_PROJECT = 'centos-cloud'
 
-  def __init__(self, vm_spec):
-    super(Centos7BasedGceVirtualMachine, self).__init__(vm_spec)
-    self.python_package_config = 'python'
-    self.python_dev_package_config = 'python-devel'
-    self.python_pip_package_config = 'python2-pip'
+
+class CentOs8BasedGceVirtualMachine(GceVirtualMachine, linux_vm.CentOs8Mixin):
+  DEFAULT_IMAGE_FAMILY = 'centos-8'
+  DEFAULT_IMAGE_PROJECT = 'centos-cloud'
 
 
-class Ubuntu1404BasedGceVirtualMachine(GceVirtualMachine,
-                                       linux_vm.Ubuntu1404Mixin):
-  DEFAULT_IMAGE_FAMILY = 'ubuntu-1404-lts'
-  DEFAULT_IMAGE_PROJECT = 'ubuntu-os-cloud'
+class ContainerOptimizedOsBasedGceVirtualMachine(
+    GceVirtualMachine, linux_vm.ContainerOptimizedOsMixin):
+  DEFAULT_IMAGE_FAMILY = 'cos-stable'
+  DEFAULT_IMAGE_PROJECT = 'cos-cloud'
+
+
+class CoreOsBasedGceVirtualMachine(GceVirtualMachine, linux_vm.CoreOsMixin):
+  DEFAULT_IMAGE_FAMILY = 'coreos-stable'
+  DEFAULT_IMAGE_PROJECT = 'coreos-cloud'
 
 
 class Ubuntu1604BasedGceVirtualMachine(GceVirtualMachine,
@@ -843,16 +845,14 @@ class Ubuntu1804BasedGceVirtualMachine(GceVirtualMachine,
   DEFAULT_IMAGE_PROJECT = 'ubuntu-os-cloud'
 
 
-class WindowsGceVirtualMachine(GceVirtualMachine,
-                               windows_virtual_machine.WindowsMixin):
+class BaseWindowsGceVirtualMachine(GceVirtualMachine,
+                                   windows_virtual_machine.BaseWindowsMixin):
   """Class supporting Windows GCE virtual machines."""
 
-  DEFAULT_IMAGE_FAMILY = 'windows-2012-r2'
   DEFAULT_IMAGE_PROJECT = 'windows-cloud'
   BOOT_DISK_SIZE_GB = 50
 
   NVME_START_INDEX = 0
-
   def __init__(self, vm_spec):
     """Initialize a Windows GCE virtual machine.
 
@@ -926,23 +926,40 @@ class WindowsGceVirtualMachine(GceVirtualMachine,
       raise GceUnexpectedWindowsAdapterOutputError('RSS failed to disable.')
 
 
-class Windows2012GceVirtualMachine(WindowsGceVirtualMachine,
-                                   windows_virtual_machine.Windows2012Mixin):
+class VersionlessWindowsGceVirtualMachine(
+    BaseWindowsGceVirtualMachine,
+    windows_virtual_machine.VersionlessWindowsMixin):
+  DEFAULT_IMAGE_FAMILY = 'windows-2012-r2-core'
+
+
+class Windows2012CoreGceVirtualMachine(
+    BaseWindowsGceVirtualMachine, windows_virtual_machine.Windows2012CoreMixin):
+  DEFAULT_IMAGE_FAMILY = 'windows-2012-r2-core'
+
+
+class Windows2016CoreGceVirtualMachine(
+    BaseWindowsGceVirtualMachine, windows_virtual_machine.Windows2016CoreMixin):
+  DEFAULT_IMAGE_FAMILY = 'windows-2016-core'
+
+
+class Windows2019CoreGceVirtualMachine(
+    BaseWindowsGceVirtualMachine, windows_virtual_machine.Windows2019CoreMixin):
+  DEFAULT_IMAGE_FAMILY = 'windows-2019-core'
+
+
+class Windows2012BaseGceVirtualMachine(
+    BaseWindowsGceVirtualMachine, windows_virtual_machine.Windows2012BaseMixin):
   DEFAULT_IMAGE_FAMILY = 'windows-2012-r2'
-  DEFAULT_IMAGE_PROJECT = 'windows-cloud'
 
 
-class Windows2016GceVirtualMachine(WindowsGceVirtualMachine,
-                                   windows_virtual_machine.Windows2016Mixin):
+class Windows2016BaseGceVirtualMachine(
+    BaseWindowsGceVirtualMachine, windows_virtual_machine.Windows2016BaseMixin):
   DEFAULT_IMAGE_FAMILY = 'windows-2016'
-  DEFAULT_IMAGE_PROJECT = 'windows-cloud'
 
 
-class Windows2019GceVirtualMachine(WindowsGceVirtualMachine,
-                                   windows_virtual_machine.Windows2019Mixin):
+class Windows2019BaseGceVirtualMachine(
+    BaseWindowsGceVirtualMachine, windows_virtual_machine.Windows2019BaseMixin):
   DEFAULT_IMAGE_FAMILY = 'windows-2019'
-  DEFAULT_IMAGE_PROJECT = 'windows-cloud'
-
 
 def GenerateDownloadPreprovisionedDataCommand(install_path, module_name,
                                               filename):

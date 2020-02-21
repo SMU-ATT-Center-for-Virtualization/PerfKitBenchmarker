@@ -15,7 +15,6 @@
 
 from collections import deque
 import os
-
 import pkg_resources
 
 from perfkitbenchmarker import errors
@@ -31,7 +30,7 @@ def _CheckRequirements(requirements_file_path):
   Args:
     requirements_file_path: string. Path to a pip requirements file.
   """
-  with open(requirements_file_path, 'rb') as fp:
+  with open(requirements_file_path, 'r') as fp:
     requirements_to_check = [(requirements_file_path, deque(fp.readlines()))]
   try:
     while requirements_to_check:
@@ -41,7 +40,7 @@ def _CheckRequirements(requirements_file_path):
         if line.startswith('-r'):
           requirements_to_check.append((file_path, lines))
           file_path = os.path.join(os.path.dirname(file_path), line[2:])
-          with open(file_path, 'rb') as fp:
+          with open(file_path, 'r') as fp:
             lines = deque(fp.readlines())
         elif line:
           pkg_resources.require(line)
@@ -69,7 +68,8 @@ def CheckBasicRequirements():
   directory. If such a file does not exist, then the requirements check is
   skipped.
   """
-  requirements_file_path = os.path.join(_BRANCH_ROOT_DIR, 'requirements.txt')
+  requirements_file_path = os.path.join(_BRANCH_ROOT_DIR,
+                                        'requirements.txt')
   if os.path.isfile(requirements_file_path):
     _CheckRequirements(requirements_file_path)
 

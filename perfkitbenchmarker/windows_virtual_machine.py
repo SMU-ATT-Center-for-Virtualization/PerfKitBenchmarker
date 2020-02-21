@@ -28,6 +28,7 @@ from perfkitbenchmarker import virtual_machine
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker import windows_packages
 
+import six
 import timeout_decorator
 import winrm
 
@@ -53,7 +54,6 @@ RDP_PORT = 3389
 # This startup script enables remote mangement of the instance. It does so
 # by creating a WinRM listener (using a self-signed cert) and opening
 # the WinRM port in the Windows firewall.
-# It also sets up RDP for manual debugging.
 _STARTUP_SCRIPT = """
 Enable-PSRemoting -Force
 $cert = New-SelfSignedCertificate -DnsName hostname -CertStoreLocation `
@@ -63,14 +63,10 @@ New-Item WSMan:\\localhost\\Listener -Transport HTTPS -Address * `
 Set-Item -Path 'WSMan:\\localhost\\Service\\Auth\\Basic' -Value $true
 netsh advfirewall firewall add rule name='Allow WinRM' dir=in action=allow `
     protocol=TCP localport={winrm_port}
-Set-ItemProperty -Path `
-    "HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server" `
-    -Name "fDenyTSConnections" -Value 0
-netsh advfirewall firewall add rule name='Allow RDP' dir=in action=allow `
-    protocol=TCP localport={rdp_port}
-""".format(winrm_port=WINRM_PORT, rdp_port=RDP_PORT)
+""".format(winrm_port=WINRM_PORT)
 STARTUP_SCRIPT = 'powershell -EncodedCommand {encoded_command}'.format(
-    encoded_command=base64.b64encode(_STARTUP_SCRIPT.encode('utf-16-le')))
+    encoded_command=six.ensure_str(
+        base64.b64encode(_STARTUP_SCRIPT.encode('utf-16-le'))))
 
 # Cygwin constants for installing and running commands through Cygwin.
 # _CYGWIN_FORMAT provides a format string to transform a bash command into one
@@ -87,17 +83,19 @@ class WaitTimeoutError(Exception):
   """Exception thrown if a wait operation takes too long."""
 
 
-class WindowsMixin(virtual_machine.BaseOsMixin):
+class BaseWindowsMixin(virtual_machine.BaseOsMixin):
   """Class that holds Windows related VM methods and attributes."""
 
   OS_TYPE = os_types.WINDOWS
   BASE_OS_TYPE = os_types.WINDOWS
 
   def __init__(self):
-    super(WindowsMixin, self).__init__()
+    super(BaseWindowsMixin, self).__init__()
     self.winrm_port = WINRM_PORT
     self.smb_port = SMB_PORT
     self.remote_access_ports = [self.winrm_port, self.smb_port, RDP_PORT]
+    self.primary_remote_access_port = self.winrm_port
+    self.rdp_port_listening_time = None
     self.temp_dir = None
     self.home_dir = None
     self.system_drive = None
@@ -214,7 +212,8 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
     s = winrm.Session('https://%s:%s' % (self.ip_address, self.winrm_port),
                       auth=(self.user_name, self.password),
                       server_cert_validation='ignore')
-    encoded_command = base64.b64encode(command.encode('utf_16_le'))
+    encoded_command = six.ensure_str(
+        base64.b64encode(command.encode('utf_16_le')))
 
     @timeout_decorator.timeout(timeout, use_signals=False,
                                timeout_exception=errors.VirtualMachine.
@@ -223,7 +222,8 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
       return s.run_cmd('powershell -encodedcommand %s' % encoded_command)
 
     r = run_command()
-    retcode, stdout, stderr = r.status_code, r.std_out, r.std_err
+    retcode, stdout, stderr = r.status_code, six.ensure_str(
+        r.std_out), six.ensure_str(r.std_err)
 
     debug_text = ('Ran %s on %s. Return code (%s).\nSTDOUT: %s\nSTDERR: %s' %
                   (command, self, retcode, stdout, stderr))
@@ -406,9 +406,31 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
                     (retcode, cmd, stdout, stderr))
       raise errors.VirtualMachine.RemoteCommandError(error_text)
 
-  @vm_util.Retry(log_errors=False, poll_interval=1, timeout=2400)
   def WaitForBootCompletion(self):
     """Waits until VM is has booted."""
+    to_wait_for = [self._WaitForWinRmCommand]
+    if FLAGS.cluster_boot_test_rdp_port_listening:
+      to_wait_for.append(self._WaitForRdpPort)
+    vm_util.RunParallelThreads([(method, [], {}) for method in to_wait_for], 2)
+
+  @vm_util.Retry(log_errors=False, poll_interval=1, timeout=2400)
+  def _WaitForRdpPort(self):
+    self.TestConnectRemoteAccessPort(RDP_PORT)
+    if self.rdp_port_listening_time is None:
+      self.rdp_port_listening_time = time.time()
+
+  @vm_util.Retry(log_errors=False, poll_interval=1, timeout=2400)
+  def _WaitForWinRmCommand(self):
+    """Waits for WinRM command and optionally for the WinRM port to listen."""
+    # Test for listening on the port first, because this will happen strictly
+    # first.
+    if (FLAGS.cluster_boot_test_port_listening and
+        self.port_listening_time is None):
+      self.TestConnectRemoteAccessPort()
+      self.port_listening_time = time.time()
+
+    # Always wait for remote host command to succeed, because it is necessary to
+    # run benchmarks.
     stdout, _ = self.RemoteCommand('hostname', suppress_warning=True)
     if self.bootable_time is None:
       self.bootable_time = time.time()
@@ -419,7 +441,6 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
 
   @vm_util.Retry(poll_interval=1, max_retries=15)
   def OnStartup(self):
-
     # Log driver information so that the user has a record of which drivers
     # were used.
     # TODO(user): put the driver information in the metadata.
@@ -431,7 +452,6 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
     self.home_dir = stdout.strip()
     stdout, _ = self.RemoteCommand('echo $env:SystemDrive')
     self.system_drive = stdout.strip()
-
     self.RemoteCommand('mkdir %s' % self.temp_dir, ignore_failure=True)
     self.DisableGuestFirewall()
 
@@ -479,7 +499,6 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
       return
     for package_name in self._installed_packages:
       self.Uninstall(package_name)
-
     self.RemoteCommand('rm -recurse -force %s' % self.temp_dir)
     self.EnableGuestFirewall()
 
@@ -682,16 +701,42 @@ class WindowsMixin(virtual_machine.BaseOsMixin):
       self.os_metadata['high_cpu_priority'] = [executable_name]
 
 
-class Windows2012Mixin(WindowsMixin):
-  """Class holding Windows2012 specific VM methods and attributes."""
-  OS_TYPE = os_types.WINDOWS2012
+class VersionlessWindowsMixin(BaseWindowsMixin,
+                              virtual_machine.DeprecatedOsMixin):
+  """Deprecated class with a versionless windows server version.
+
+  By convention it resolves to Windows 2012 Core.
+  """
+  OS_TYPE = os_types.WINDOWS
+  ALTERNATIVE_OS = os_types.WINDOWS2012_CORE
+  END_OF_LIFE = '2020-04-01'
 
 
-class Windows2016Mixin(WindowsMixin):
-  """Class holding Windows2016 specific VM methods and attributes."""
-  OS_TYPE = os_types.WINDOWS2016
+class Windows2012CoreMixin(BaseWindowsMixin):
+  """Class holding Windows Server 2012 Server Core VM specifics."""
+  OS_TYPE = os_types.WINDOWS2012_CORE
 
 
-class Windows2019Mixin(WindowsMixin):
-  """Class holding Windows2019 specific VM methods and attributes."""
-  OS_TYPE = os_types.WINDOWS2019
+class Windows2016CoreMixin(BaseWindowsMixin):
+  """Class holding Windows Server 2016 Server Core VM specifics."""
+  OS_TYPE = os_types.WINDOWS2016_CORE
+
+
+class Windows2019CoreMixin(BaseWindowsMixin):
+  """Class holding Windows Server 2019 Server Core VM specifics."""
+  OS_TYPE = os_types.WINDOWS2019_CORE
+
+
+class Windows2012BaseMixin(BaseWindowsMixin):
+  """Class holding Windows Server 2012 Server Base VM specifics."""
+  OS_TYPE = os_types.WINDOWS2012_BASE
+
+
+class Windows2016BaseMixin(BaseWindowsMixin):
+  """Class holding Windows Server 2016 Server Base VM specifics."""
+  OS_TYPE = os_types.WINDOWS2016_BASE
+
+
+class Windows2019BaseMixin(BaseWindowsMixin):
+  """Class holding Windows Server 2019 Server Base VM specifics."""
+  OS_TYPE = os_types.WINDOWS2019_BASE
