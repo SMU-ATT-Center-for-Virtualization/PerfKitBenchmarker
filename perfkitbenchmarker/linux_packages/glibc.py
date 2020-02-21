@@ -18,17 +18,16 @@ from perfkitbenchmarker.linux_packages import INSTALL_DIR
 
 PACKAGE_NAME = 'glibc'
 GLIBC_DIR = '%s/glibc' % INSTALL_DIR
-GLIBC_VERSION = '2.31'
+GLIBC_VERSION = '2.29'
 GLIBC_TAR = 'glibc-{}.tar.xz'.format(GLIBC_VERSION)
 
 BINUTILS_DIR = '%s/binutils' % INSTALL_DIR
-BINUTILS_VERSION = '2.34'
-BINUTILS_TAR = 'binutils-{}.tar.gz'.format(BINUTILS_VERSION)
+BINUTILS_TAR = 'binutils-2.30.tar.gz'
 PREPROVISIONED_DATA = {
     BINUTILS_TAR:
-        '53537d334820be13eeb8acb326d01c7c81418772d626715c7ae927a7d401cab3',
+        '8c3850195d1c093d290a716e20ebcaa72eda32abf5e3d8611154b39cff79e9ea',
     GLIBC_TAR:
-        '9246fe44f68feeec8c666bb87973d590ce0137cca145df014c72ec95be9ffd17'
+        'f3eeb8d57e25ca9fc13c2af3dae97754f9f643bc69229546828e3a240e2af04b'
 }
 PACKAGE_DATA_URL = {
     BINUTILS_TAR: posixpath.join(
@@ -40,11 +39,9 @@ PACKAGE_DATA_URL = {
 
 def _Install(vm):
   """Installs the Glibc Benchmark package on the VM."""
+  vm.Install('node_js')
   vm.Install('build_tools')
-  # bison and texinfo are required for compiling newer versions of glibc > 2.27.
-  # The included version of gcc-7.4 in Ubuntu 1804 does not work out of the box
-  # without gcc-snapshot.
-  vm.InstallPackages('gcc-snapshot bison texinfo')
+  vm.InstallPackages('bison')
 
   vm.RemoteCommand('cd {0} && mkdir binutils'.format(INSTALL_DIR))
   vm.InstallPreprovisionedPackageData(
@@ -52,9 +49,10 @@ def _Install(vm):
   vm.RemoteCommand('cd {0} && tar xvf {1}'.format(BINUTILS_DIR, BINUTILS_TAR))
   vm.RemoteCommand('cd {0} && mkdir binutils-build && '
                    'cd binutils-build/ && '
-                   '../binutils-{1}/configure --prefix=/opt/binutils && '
-                   'make -j 4 && sudo make install'.format(
-                       BINUTILS_DIR, BINUTILS_VERSION))
+                   '../binutils-2.30/configure --prefix=/opt/binutils && '
+                   'make -j 4 && sudo make install'.format(BINUTILS_DIR))
+
+  vm.Install('gcc5')
 
   vm.RemoteCommand('cd {0} && mkdir glibc'.format(INSTALL_DIR))
   vm.InstallPreprovisionedPackageData(

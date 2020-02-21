@@ -18,7 +18,8 @@
 
 def YumInstall(vm):
   """Installs the package on the VM."""
-  vm.InstallPackages(vm.PYTHON_PACKAGE + '-devel')
+  package_name = getattr(vm, 'python_dev_package_config', 'python-devel')
+  vm.InstallPackages(package_name)
 
 
 def AptInstall(vm):

@@ -15,10 +15,6 @@
 
 """Module containing aerospike server installation and cleanup functions."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import logging
 import tempfile
 
@@ -26,7 +22,6 @@ from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.linux_packages import INSTALL_DIR
-from six.moves import range
 
 FLAGS = flags.FLAGS
 
@@ -123,7 +118,7 @@ def PrepActConfig(vm, load, index=None):
   if FLAGS.act_threads_per_queue:
     content += 'threads-per-queue: %d\n' % FLAGS.act_threads_per_queue
   logging.info('ACT config: %s', content)
-  with tempfile.NamedTemporaryFile(delete=False, mode='w+') as tf:
+  with tempfile.NamedTemporaryFile(delete=False) as tf:
     tf.write(content)
     tf.close()
     vm.PushDataFile(tf.name, config_file)
@@ -202,8 +197,8 @@ def ParseRunAct(out):
     matrix = ''
     if vals[0] in ('avg', 'max'):
       matrix = '_' + vals[0]
-    num_buckets = (len(vals) - 1) // 2
-    for i in range(num_buckets - 1):
+    num_buckets = (len(vals) - 1) / 2
+    for i in xrange(num_buckets - 1):
       assert buckets[i] == buckets[i + num_buckets]
       ret.append(
           sample.Sample('reads' + matrix, float(vals[i + 1]), '%>(ms)',

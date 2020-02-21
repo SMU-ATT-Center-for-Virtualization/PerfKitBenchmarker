@@ -21,7 +21,6 @@ import logging
 import posixpath
 import re
 
-from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
 
@@ -29,16 +28,6 @@ WRK2_URL = ('https://github.com/giltene/wrk2/archive/'
             'c4250acb6921c13f8dccfc162d894bd7135a2979.tar.gz')
 WRK2_DIR = posixpath.join(vm_util.VM_TMP_DIR, 'wrk2')
 WRK2_PATH = posixpath.join(WRK2_DIR, 'wrk')
-
-FLAGS = flags.FLAGS
-
-flags.DEFINE_bool('wrk2_corrected_latency', True,
-                  'Whether or not response latency is corrected.\n'
-                  'If True, wrk2 measure response latency from the time the '
-                  'transmission should have occurred according to the constant '
-                  'throughput configured for the run.\n'
-                  'If False, response latency is the time that actual '
-                  'transmission of a request occured.')
 
 
 def _Install(vm):
@@ -132,11 +121,9 @@ def Run(vm, target, rate, connections=1, duration=60, script_path=None,
          '--connections={connections} '
          '--threads={threads} '
          '--duration={duration} '
-         '--{corrected}').format(
+         '--latency').format(
              wrk=WRK2_PATH, connections=connections, threads=threads,
-             rate=rate, duration=duration,
-             corrected=(
-                 'latency' if FLAGS.wrk2_corrected_latency else 'u_latency'))
+             rate=rate, duration=duration)
   if script_path:
     cmd += ' --script ' + script_path
   cmd += ' ' + target
@@ -146,5 +133,4 @@ def Run(vm, target, rate, connections=1, duration=60, script_path=None,
                         metadata={'connections': connections,
                                   'threads': threads,
                                   'duration': duration,
-                                  'rate': rate,
-                                  'corrected': False})
+                                  'rate': rate})

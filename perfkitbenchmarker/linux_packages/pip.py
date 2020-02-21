@@ -47,13 +47,7 @@ def Install(vm, package_name='python-pip'):
 def YumInstall(vm):
   """Installs the pip package on the VM."""
   vm.InstallEpelRepo()
-  Install(vm, vm.PYTHON_PACKAGE + '-pip')
-
-
-def SwupdInstall(vm):
-  """Installs the pip package on the VM,"""
-  vm.InstallPackages("which")
-  package_name = "python-basic"
+  package_name = getattr(vm, 'python_pip_package_config', 'python27-pip')
   Install(vm, package_name)
 
 

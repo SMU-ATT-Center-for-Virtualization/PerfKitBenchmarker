@@ -47,7 +47,6 @@ def _Install(vm):
 
 def AptInstall(vm):
   """Installs the aerospike client on the VM."""
-  vm.InstallPackages('netcat-openbsd')
   _Install(vm)
 
 

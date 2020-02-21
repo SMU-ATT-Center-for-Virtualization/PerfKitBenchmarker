@@ -13,3 +13,7 @@
 # limitations under the License.
 
 # Requirements for running PerfKit Benchmarker on AliCloud.
+-r../../../requirements.txt
+aliyuncli>=2.1
+aliyun-python-sdk-ecs>=0.1.4
+paramiko>=1.15
