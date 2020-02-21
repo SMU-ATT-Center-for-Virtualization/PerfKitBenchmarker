@@ -504,7 +504,7 @@ class GceFirewall(network.BaseFirewall):
     Args:
       vm: The BaseVirtualMachine object to open the ICMP protocol for.
     """
-    if vm.is_static:
+    if vm.is_static or FLAGS.skip_firewall_rules:
       return
     with self._lock:
       firewall_name = ('perfkit-firewall-%s-%d-%d' %
@@ -533,7 +533,7 @@ class GceFirewall(network.BaseFirewall):
       source_range: List of source CIDRs to allow for this port. If none, all
         sources are allowed.
     """
-    if vm.is_static:
+    if vm.is_static or FLAGS.skip_firewall_rules:
       return
     if source_range:
       source_range = ','.join(source_range)
