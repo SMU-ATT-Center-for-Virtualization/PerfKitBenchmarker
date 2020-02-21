@@ -19,10 +19,6 @@ and average latency inside mesh network.
 """
 
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import logging
 import re
 import threading
@@ -33,7 +29,6 @@ from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.linux_packages import netperf
-from six.moves import range
 
 
 flags.DEFINE_integer('num_connections', 1,

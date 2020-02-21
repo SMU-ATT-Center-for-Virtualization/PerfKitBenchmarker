@@ -22,9 +22,6 @@ Users can specify additional paths to search for required data files using the
 `--data_search_paths` flag.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 import abc
 import logging
 import os
@@ -33,7 +30,6 @@ import perfkitbenchmarker
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import temp_dir
 import pkg_resources
-import six
 
 FLAGS = flags.FLAGS
 
@@ -50,8 +46,10 @@ class ResourceNotFound(ValueError):
   pass
 
 
-class ResourceLoader(six.with_metaclass(abc.ABCMeta, object)):
+class ResourceLoader(object):
   """An interface for loading named resources."""
+
+  __metaclass__ = abc.ABCMeta
 
   @abc.abstractmethod
   def ResourceExists(self, name):

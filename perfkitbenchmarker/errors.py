@@ -151,9 +151,6 @@ class VmUtil(object):
   class IssueCommandError(Error):
     pass
 
-  class IssueCommandTimeoutError(Error):
-    pass
-
 
 class Benchmarks(object):
   """Errors raised by individual benchmark."""
@@ -174,17 +171,7 @@ class Benchmarks(object):
     pass
 
   class QuotaFailure(Error):
-    """Errors that are related to insufficient quota on cloud provider."""
-
-    class RateLimitExceededError(Error):
-      pass
-
-  class KnownIntermittentError(Error):
-    """Known intermittent failures of the benchmark.
-
-    These are non-retryable, known failure modes of the benchmark.  It is
-    recommended that the benchmark be completely re-run.
-    """
+    pass
 
 
 class Resource(object):

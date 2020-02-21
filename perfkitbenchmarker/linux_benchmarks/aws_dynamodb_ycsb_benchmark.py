@@ -130,12 +130,12 @@ def Cleanup(benchmark_spec):
 
 
 def GetRemoteVMCredentialsFullPath(vm):
-  """Returns the full path for first AWS credentials file found."""
+  """Returns the full path for AWS credentials file."""
   home_dir, _ = vm.RemoteCommand('echo ~')
   search_path = os.path.join(home_dir.rstrip('\n'),
                              FLAGS.aws_credentials_remote_path)
   result, _ = vm.RemoteCommand('grep -irl "key" {0}'.format(search_path))
-  return result.strip('\n').split('\n')[0]
+  return result.rstrip('\n')
 
 
 def _Install(vm):

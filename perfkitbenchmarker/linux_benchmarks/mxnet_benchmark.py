@@ -19,9 +19,6 @@
 image-classification).
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 import re
 from perfkitbenchmarker import configs
 from perfkitbenchmarker import flags
@@ -29,7 +26,6 @@ from perfkitbenchmarker import sample
 from perfkitbenchmarker.linux_packages import cuda_toolkit
 from perfkitbenchmarker.linux_packages import mxnet
 from perfkitbenchmarker.linux_packages import mxnet_cnn
-from six.moves import range
 
 
 FLAGS = flags.FLAGS
@@ -302,7 +298,7 @@ def Run(benchmark_spec):
       # Specifies the number of threads to use in CPU test.
       # https://mxnet.incubator.apache.org/faq/perf.html
       mx_benchmark_cmd = 'OMP_NUM_THREADS={omp_num_threads} {cmd}'.format(
-          omp_num_threads=vm.NumCpusForBenchmark() // 2,
+          omp_num_threads=vm.NumCpusForBenchmark() / 2,
           cmd=mx_benchmark_cmd)
 
     if num_layers:

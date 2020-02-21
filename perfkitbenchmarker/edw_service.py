@@ -46,14 +46,11 @@ flags.DEFINE_string('edw_service_cluster_password', None,
 FLAGS = flags.FLAGS
 
 
-TYPE_2_PROVIDER = dict([('athena', 'aws'),
-                        ('redshift', 'aws'),
+TYPE_2_PROVIDER = dict([('redshift', 'aws'),
                         ('spectrum', 'aws'),
                         ('bigquery', 'gcp'),
                         ('azuresqldatawarehouse', 'azure')])
-TYPE_2_MODULE = dict([('athena',
-                       'perfkitbenchmarker.providers.aws.athena'),
-                      ('redshift',
+TYPE_2_MODULE = dict([('redshift',
                        'perfkitbenchmarker.providers.aws.redshift'),
                       ('spectrum',
                        'perfkitbenchmarker.providers.aws.spectrum'),
@@ -205,72 +202,3 @@ class EdwService(resource.BaseResource):
     all_script_performance = json.loads(stdout)
     script_performance = all_script_performance[script_name]
     return script_performance['execution_time'], script_performance['job_id']
-
-  @classmethod
-  def RunScriptOnClientVm(cls, vm, database, script):
-    """A function to execute the script on the client vm.
-
-    Args:
-      vm: Client vm on which the script will be run.
-      database: The database within which the query executes.
-      script: Named query to execute (expected to be on the client vm).
-
-    Returns:
-      A dictionary with the execution performance results that includes
-      execution status and the latency of executing the script.
-    """
-    raise NotImplementedError
-
-  def GetDatasetLastUpdatedTime(self, dataset=None):
-    """Get the formatted last modified timestamp of the dataset."""
-    raise NotImplementedError
-
-  def ExtractDataset(self,
-                     dest_bucket,
-                     dataset=None,
-                     tables=None,
-                     dest_format='CSV'):
-    """Extract all tables in a dataset to object storage.
-
-    Args:
-      dest_bucket: Name of the bucket to extract the data to. Should already
-        exist.
-      dataset: Optional name of the dataset. If none, will be determined by the
-        service.
-      tables: Optional list of table names to extract. If none, all tables in
-        the dataset will be extracted.
-      dest_format: Format to extract data in.
-    """
-    raise NotImplementedError
-
-  def RemoveDataset(self, dataset=None):
-    """Removes a dataset.
-
-    Args:
-      dataset: Optional name of the dataset. If none, will be determined by the
-        service.
-    """
-    raise NotImplementedError
-
-  def CreateDataset(self, dataset=None, description=None):
-    """Creates a new dataset.
-
-    Args:
-      dataset: Optional name of the dataset. If none, will be determined by the
-        service.
-      description: Optional description of the dataset.
-    """
-    raise NotImplementedError
-
-  def LoadDataset(self, source_bucket, tables, dataset=None):
-    """Load all tables in a dataset to a database from object storage.
-
-    Args:
-      source_bucket: Name of the bucket to load the data from. Should already
-        exist. Each table must have its own subfolder in the bucket named after
-        the table, containing one or more csv files that make up the table data.
-      tables: List of table names to load.
-      dataset: Optional name of the dataset. If none, will be determined by the
-        service.
-    """
-    raise NotImplementedError

@@ -4,10 +4,6 @@ The list of profiles are passed via flag each of which are defined in the
 profile_details module.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 __author__ = 'p3rf@google.com'
 
 import json
@@ -85,7 +81,7 @@ def manage_streams():
 
 def main(argv):
   del argv
-  print(manage_streams())
+  print manage_streams()
 
 
 if __name__ == '__main__':

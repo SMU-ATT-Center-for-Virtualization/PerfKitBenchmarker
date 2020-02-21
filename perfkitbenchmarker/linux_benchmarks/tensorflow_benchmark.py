@@ -22,9 +22,6 @@ between the workers. Each worker process runs the same model. When a worker
 needs a variable, it accesses it from the parameter server directly.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 import collections
 import posixpath
 from perfkitbenchmarker import configs
@@ -35,7 +32,6 @@ from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.linux_packages import cuda_toolkit
 from perfkitbenchmarker.linux_packages import INSTALL_DIR
 from perfkitbenchmarker.linux_packages import tensorflow
-from six.moves import range
 
 FLAGS = flags.FLAGS
 
