@@ -20,6 +20,7 @@ from perfkitbenchmarker import resource
 
 # import itertools
 import re
+from itertools import ifilter, combinations
 import time
 import logging
 import json

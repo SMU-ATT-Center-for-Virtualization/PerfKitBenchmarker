@@ -37,6 +37,7 @@ from perfkitbenchmarker import os_types
 from perfkitbenchmarker import resource
 from perfkitbenchmarker import virtual_machine
 from perfkitbenchmarker import windows_virtual_machine
+from perfkitbenchmarker import providers
 
 FLAGS = flags.FLAGS
 
@@ -44,12 +45,14 @@ flags.DEFINE_list('static_vm_tags', None,
                   'The tags of static VMs for PKB to run with. Even if other '
                   'VMs are specified in a config, if they aren\'t in this list '
                   'they will be skipped during VM creation.')
+
 flags.DEFINE_string('static_cloud_metadata', 'Static',
                      'Instead of using Static as the cloud type in metadata, '
                      'it will use the provided value')
 flags.DEFINE_string('static_network_tier_metadata', None,
                      'Instead of using Static as the cloud type in metadata, '
                      'it will use the provided value')
+
 
 
 class StaticVmSpec(virtual_machine.BaseVmSpec):
@@ -208,7 +211,6 @@ class StaticVirtualMachine(virtual_machine.BaseVirtualMachine):
         os_types.WINDOWS: required_keys | frozenset(['password']),
         os_types.DEBIAN: linux_required_keys,
         os_types.RHEL: linux_required_keys,
-        os_types.CLEAR: linux_required_keys,
         os_types.UBUNTU_CONTAINER: linux_required_keys,
     }
 
@@ -339,38 +341,38 @@ class StaticVirtualMachine(virtual_machine.BaseVirtualMachine):
 def GetStaticVmClass(os_type):
   """Returns the static VM class that corresponds to the os_type."""
   if not os_type:
-    os_type = os_types.DEFAULT
-    logging.warning('Could not find os type for VM. Defaulting to %s.', os_type)
+    logging.warning('Could not find os type for VM. Defaulting to debian.')
+    os_type = os_types.DEBIAN
   return resource.GetResourceClass(virtual_machine.BaseVirtualMachine,
                                    CLOUD=StaticVirtualMachine.CLOUD,
                                    OS_TYPE=os_type)
 
 
-class Ubuntu1604BasedStaticVirtualMachine(
-    StaticVirtualMachine, linux_virtual_machine.Ubuntu1604Mixin):
+class ContainerizedStaticVirtualMachine(
+    StaticVirtualMachine, linux_virtual_machine.ContainerizedDebianMixin):
   pass
 
 
-class ClearBasedStaticVirtualMachine(StaticVirtualMachine,
-                                     linux_virtual_machine.ClearMixin):
+class DebianBasedStaticVirtualMachine(StaticVirtualMachine,
+                                      linux_virtual_machine.DebianMixin):
   pass
 
 
-class VersionlessRhelBasedStaticVirtualMachine(
-    StaticVirtualMachine, linux_virtual_machine.VersionlessRhelMixin):
+class RhelBasedStaticVirtualMachine(StaticVirtualMachine,
+                                    linux_virtual_machine.RhelMixin):
   pass
 
 
-class Rhel7BasedStaticVirtualMachine(StaticVirtualMachine,
-                                     linux_virtual_machine.Rhel7Mixin):
-  pass
+class Centos7BasedStaticVirtualMachine(StaticVirtualMachine,
+                                       linux_virtual_machine.Centos7Mixin):
+
+  def __init__(self, vm_spec):
+    super(Centos7BasedStaticVirtualMachine, self).__init__(vm_spec)
+    self.python_package_config = 'python'
+    self.python_dev_package_config = 'python-devel'
+    self.python_pip_package_config = 'python2-pip'
 
 
-class CentOs7BasedStaticVirtualMachine(StaticVirtualMachine,
-                                       linux_virtual_machine.CentOs7Mixin):
-  pass
-
-
-class VersionlessWindowsBasedStaticVirtualMachine(
-    StaticVirtualMachine, windows_virtual_machine.VersionlessWindowsMixin):
+class WindowsBasedStaticVirtualMachine(StaticVirtualMachine,
+                                       windows_virtual_machine.WindowsMixin):
   pass

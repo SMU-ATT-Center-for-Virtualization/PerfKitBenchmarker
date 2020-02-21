@@ -16,10 +16,6 @@
 Tables can be created and deleted.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
 import logging
 
@@ -27,7 +23,6 @@ from perfkitbenchmarker import flags
 from perfkitbenchmarker import resource
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.providers.aws import util
-from six.moves import range
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string('aws_dynamodb_primarykey',

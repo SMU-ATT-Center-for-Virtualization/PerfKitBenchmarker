@@ -45,6 +45,7 @@ to install it. This will allow this benchmark to properly create an instance.
 
 import logging
 import re
+import StringIO
 import time
 
 from perfkitbenchmarker import configs
@@ -446,7 +447,7 @@ def Run(benchmark_spec):
     # The run phase is common across providers. The VMs[0] object contains all
     # information and states necessary to carry out the run.
     run_results = _RunSysbench(vm, metadata, benchmark_spec, thread_count)
-    print(run_results)
+    print run_results
     publisher.PublishRunStageSamples(benchmark_spec, run_results)
 
   # all results have already been published
