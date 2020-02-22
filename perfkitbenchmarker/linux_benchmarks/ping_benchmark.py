@@ -22,11 +22,22 @@ import logging
 from perfkitbenchmarker import configs
 from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
+from perfkitbenchmarker import flag_util
 import re
+
+
+flag_util.DEFINE_integerlist('ping_interval_time_us',
+                             flag_util.IntegerList([1000]),
+                             'time between pings in microseconds',
+                              module_name=__name__)
 
 flags.DEFINE_boolean('ping_also_run_using_external_ip', False,
                      'If set to True, the ping command will also be executed '
                      'using the external ips of the vms.')
+
+flag_util.DEFINE_integerlist('ping_count', flag_util.IntegerList([100]),
+                         'Number of packets to send with ping',
+                          module_name=__name__)
 
 FLAGS = flags.FLAGS
 
@@ -78,21 +89,28 @@ def Run(benchmark_spec):
   """
   vms = benchmark_spec.vms
   results = []
-  for sending_vm, receiving_vm in vms, reversed(vms):
-    results = results + _RunPing(sending_vm,
-                                 receiving_vm,
-                                 receiving_vm.internal_ip,
-                                 'internal')
-  if FLAGS.ping_also_run_using_external_ip:
-    for sending_vm, receiving_vm in vms, reversed(vms):
-      results = results + _RunPing(sending_vm,
-                                   receiving_vm,
-                                   receiving_vm.ip_address,
-                                   'external')
+
+  for ping_count in FLAGS.ping_count:
+    for interval_time in FLAGS.ping_interval_time_us:
+      for sending_vm, receiving_vm in vms, reversed(vms):
+        results = results + _RunPing(sending_vm,
+                                     receiving_vm,
+                                     receiving_vm.internal_ip,
+                                     'internal',
+                                     interval_time,
+                                     ping_count)
+      if FLAGS.ping_also_run_using_external_ip:
+        for sending_vm, receiving_vm in vms, reversed(vms):
+          results = results + _RunPing(sending_vm,
+                                       receiving_vm,
+                                       receiving_vm.ip_address,
+                                       'external',
+                                       interval_time,
+                                       ping_count)
   return results
 
 
-def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type):
+def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, ping_count):
   """Run ping using 'sending_vm' to connect to 'receiving_ip'.
 
   Args:
@@ -103,6 +121,11 @@ def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type):
   Returns:
     A list of samples, with one sample for each metric.
   """
+  print("INTERVAL TIME: ")
+  print(interval_time)
+
+  interval_time_sec = float(interval_time) * 0.000001
+
   logging.info("IP ADDRESS: %s", receiving_ip)
   print(receiving_vm)
 
@@ -111,14 +134,17 @@ def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type):
     return []
 
   logging.info('Ping results (ip_type = %s):', ip_type)
-  ping_cmd = 'ping -c 100 %s' % receiving_ip
+  ping_cmd = 'sudo ping -c %d -i %f %s' % (ping_count, interval_time_sec, receiving_ip)
   stdout, _ = sending_vm.RemoteCommand(ping_cmd, should_log=True)
   stats = re.findall('([0-9]*\\.[0-9]*)', stdout.splitlines()[-1])
+  if len(stats) > len(METRICS):
+    stats = stats[0:len(METRICS)]
   assert len(stats) == len(METRICS), stats
   results = []
   metadata = {'ip_type': ip_type,
               'receiving_zone': receiving_vm.zone,
-              'sending_zone': sending_vm.zone}
+              'sending_zone': sending_vm.zone,
+              'interval_time_us': interval_time}
   for i, metric in enumerate(METRICS):
     results.append(sample.Sample(metric, float(stats[i]), 'ms', metadata))
   return results
