@@ -517,11 +517,13 @@ def Run(benchmark_spec):
     assert num_streams >= 1
 
     for netperf_benchmark in FLAGS.netperf_benchmarks:
-      if netperf_benchmark in ['TCP_RR', 'UDP_RR'] and FLAGS.netperf_rr_interval_time_us:
+      if (netperf_benchmark in ['TCP_RR', 'UDP_RR'] and
+          FLAGS.netperf_rr_interval_time_us):
         for interval in FLAGS.netperf_rr_interval_time_us:
           if vm_util.ShouldRunOnExternalIpAddress():
             external_ip_results = RunNetperf(client_vm, netperf_benchmark,
-                                             server_vm.ip_address, num_streams, interval)
+                                             server_vm.ip_address,
+                                             num_streams, interval)
             for external_ip_result in external_ip_results:
               external_ip_result.metadata['ip_type'] = 'external'
               external_ip_result.metadata.update(metadata)
@@ -529,7 +531,8 @@ def Run(benchmark_spec):
 
           if vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm):
             internal_ip_results = RunNetperf(client_vm, netperf_benchmark,
-                                             server_vm.internal_ip, num_streams, interval)
+                                             server_vm.internal_ip,
+                                             num_streams, interval)
             for internal_ip_result in internal_ip_results:
               internal_ip_result.metadata.update(metadata)
               internal_ip_result.metadata['ip_type'] = 'internal'
