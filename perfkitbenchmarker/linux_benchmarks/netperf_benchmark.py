@@ -73,6 +73,10 @@ flags.DEFINE_integer('netperf_tcp_stream_send_size_in_bytes', 131072,
                      'The number of contiguous numbers to sum at a time in the '
                      'thinktime array.')
 
+flag_util.DEFINE_integerlist('netperf_rr_interval_time_us', None,
+                             'time between pings in microseconds', 
+                             module_name=__name__)
+
 
 ALL_BENCHMARKS = ['TCP_RR', 'TCP_CRR', 'TCP_STREAM', 'UDP_RR', 'UDP_STREAM']
 flags.DEFINE_list('netperf_benchmarks', ALL_BENCHMARKS,
@@ -103,7 +107,8 @@ OUTPUT_SELECTOR = (
     'THROUGHPUT,THROUGHPUT_UNITS,P50_LATENCY,P90_LATENCY,'
     'P99_LATENCY,STDDEV_LATENCY,MIN_LATENCY,MAX_LATENCY,'
     'CONFIDENCE_ITERATION,THROUGHPUT_CONFID,'
-    'LOCAL_TRANSPORT_RETRANS,REMOTE_TRANSPORT_RETRANS')
+    'LOCAL_TRANSPORT_RETRANS,REMOTE_TRANSPORT_RETRANS,'
+    'MEAN_LATENCY')
 
 # Command ports are even (id*2), data ports are odd (id*2 + 1)
 PORT_START = 10000
@@ -334,7 +339,8 @@ def ParseNetperfOutput(stdout, metadata, benchmark_name,
         ('99th Percentile Latency Microseconds', 'p99'),
         ('Minimum Latency Microseconds', 'min'),
         ('Maximum Latency Microseconds', 'max'),
-        ('Stddev Latency Microseconds', 'stddev')]:
+        ('Stddev Latency Microseconds', 'stddev'),
+        ('Mean Latency Microseconds', 'mean')]:
       if metric_key in results:
         latency_samples.append(
             sample.Sample('%s_Latency_%s' % (benchmark_name, metric_name),
@@ -343,7 +349,7 @@ def ParseNetperfOutput(stdout, metadata, benchmark_name,
   return (throughput_sample, latency_samples, latency_hist)
 
 
-def RunNetperf(vm, benchmark_name, server_ip, num_streams):
+def RunNetperf(vm, benchmark_name, server_ip, num_streams, netperf_rr_interval_time_us=None):
   """Spawns netperf on a remote VM, parses results.
 
   Args:
@@ -378,27 +384,42 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   metadata = {}
 
   #TODO change timeout and stuff depending on netperf flags and netperf test
-  if (benchmark_name.upper() == 'TCP_RR' or benchmark_name.upper() == 'UDP_RR') and FLAGS.netperf_rr_test_length:
+  if (benchmark_name.upper() == 'TCP_RR' or benchmark_name.upper() == 'UDP_RR'):
     netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
-                   '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
-                   ' -- '
-                   '-P ,{{data_port}} '
-                   '-o {output_selector}').format(
+                   '-t {benchmark_name} -H {server_ip} {confidence} ').format(
                        netperf_path=netperf.NETPERF_PATH,
                        benchmark_name=benchmark_name,
                        server_ip=server_ip,
-                       length=(-1 * abs(FLAGS.netperf_rr_test_length)),
-                       output_selector=OUTPUT_SELECTOR,
-                       confidence=confidence, verbosity=verbosity)
+                       confidence=confidence,
+                       verbosity=verbosity)
 
-    remote_cmd_timeout = \
-      FLAGS.netperf_rr_test_length * 0.0001 * (FLAGS.netperf_max_iter or 1) + 300
+    if FLAGS.netperf_rr_test_length:            
+      netperf_cmd = netperf_cmd + ('-l {length} ').format(length=(-1 * abs(FLAGS.netperf_rr_test_length)))
+      metadata['netperf_test_length'] = FLAGS.netperf_rr_test_length
+      metadata['netperf_test_length_unit'] = 'transactions'
+
+      remote_cmd_timeout = int((FLAGS.netperf_rr_test_length * 
+                            0.0001 * (FLAGS.netperf_max_iter or 1) + 300))
+
+    else:
+      netperf_cmd = netperf_cmd + ('-l {length} ').format(length=FLAGS.netperf_test_length)
+      metadata['netperf_test_length'] = FLAGS.netperf_test_length
+      metadata['netperf_test_length_unit'] = 'seconds'
+
+    if netperf_rr_interval_time_us:
+      netperf_cmd = netperf_cmd + ('-w {interval}us -b 1 ').format(interval=netperf_rr_interval_time_us)
+      metadata['interval_time_us'] = netperf_rr_interval_time_us
+
+    netperf_cmd = netperf_cmd + ('-- '
+                                 '-P ,{{data_port}} '
+                                 '-o {output_selector}').format(
+                                  output_selector=OUTPUT_SELECTOR)
+
+    
 
     # Metadata to attach to samples
-    metadata = {'netperf_test_length': FLAGS.netperf_rr_test_length,
-                'netperf_test_length_unit': 'transactions',
-                'max_iter': FLAGS.netperf_max_iter or 1,
-                'sending_thread_count': num_streams}
+    metadata['max_iter'] = FLAGS.netperf_max_iter or 1
+    metadata['sending_thread_count'] = num_streams
 
   elif benchmark_name.upper() == 'UDP_STREAM':
     netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
@@ -584,21 +605,42 @@ def Run(benchmark_spec):
     assert num_streams >= 1
 
     for netperf_benchmark in FLAGS.netperf_benchmarks:
-      if vm_util.ShouldRunOnExternalIpAddress():
-        external_ip_results = RunNetperf(client_vm, netperf_benchmark,
-                                         server_vm.ip_address, num_streams)
-        for external_ip_result in external_ip_results:
-          external_ip_result.metadata['ip_type'] = 'external'
-          external_ip_result.metadata.update(metadata)
-        results.extend(external_ip_results)
+      print("HERE1")
+      if netperf_benchmark in ['TCP_RR', 'UDP_RR'] and FLAGS.netperf_rr_interval_time_us:
+        for interval in FLAGS.netperf_rr_interval_time_us:
+          print("HERE2")
+          if vm_util.ShouldRunOnExternalIpAddress():
+            external_ip_results = RunNetperf(client_vm, netperf_benchmark,
+                                             server_vm.ip_address, num_streams, interval)
+            for external_ip_result in external_ip_results:
+              external_ip_result.metadata['ip_type'] = 'external'
+              external_ip_result.metadata.update(metadata)
+            results.extend(external_ip_results)
 
-      if vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm):
-        internal_ip_results = RunNetperf(client_vm, netperf_benchmark,
-                                         server_vm.internal_ip, num_streams)
-        for internal_ip_result in internal_ip_results:
-          internal_ip_result.metadata.update(metadata)
-          internal_ip_result.metadata['ip_type'] = 'internal'
-        results.extend(internal_ip_results)
+          if vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm):
+            internal_ip_results = RunNetperf(client_vm, netperf_benchmark,
+                                             server_vm.internal_ip, num_streams, interval)
+            for internal_ip_result in internal_ip_results:
+              internal_ip_result.metadata.update(metadata)
+              internal_ip_result.metadata['ip_type'] = 'internal'
+            results.extend(internal_ip_results)
+
+      else:
+        if vm_util.ShouldRunOnExternalIpAddress():
+          external_ip_results = RunNetperf(client_vm, netperf_benchmark,
+                                           server_vm.ip_address, num_streams)
+          for external_ip_result in external_ip_results:
+            external_ip_result.metadata['ip_type'] = 'external'
+            external_ip_result.metadata.update(metadata)
+          results.extend(external_ip_results)
+
+        if vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm):
+          internal_ip_results = RunNetperf(client_vm, netperf_benchmark,
+                                           server_vm.internal_ip, num_streams)
+          for internal_ip_result in internal_ip_results:
+            internal_ip_result.metadata.update(metadata)
+            internal_ip_result.metadata['ip_type'] = 'internal'
+          results.extend(internal_ip_results)
 
   return results
 

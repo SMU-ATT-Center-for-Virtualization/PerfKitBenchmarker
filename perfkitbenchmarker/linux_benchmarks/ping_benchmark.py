@@ -144,7 +144,8 @@ def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, pin
   metadata = {'ip_type': ip_type,
               'receiving_zone': receiving_vm.zone,
               'sending_zone': sending_vm.zone,
-              'interval_time_us': interval_time}
+              'interval_time_us': interval_time,
+              'transaction_count': ping_count}
   for i, metric in enumerate(METRICS):
     results.append(sample.Sample(metric, float(stats[i]), 'ms', metadata))
   return results

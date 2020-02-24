@@ -60,7 +60,7 @@ def _Install(vm):
 
     vm.RemoteCommand('cd %s && '
                      './autogen.sh &&'
-                     './configure --enable-burst --enable-demo --enable-histogram '
+                     './configure --enable-burst --enable-demo --enable-spin --enable-histogram '
                      '&& make && sudo make install' % (NETPERF_DIR))
 
     vm.RemoteCommand('cd %s && chmod +x runemomniaggdemo.sh find_max_burst.sh' 
