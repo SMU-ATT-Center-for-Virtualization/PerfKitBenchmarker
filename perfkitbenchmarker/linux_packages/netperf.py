@@ -47,6 +47,7 @@ def _Install(vm):
   """Installs the netperf package on the VM."""
   vm.Install('pip')
   vm.RemoteCommand('sudo pip install absl-py')
+  vm.Install('texinfo')
   vm.Install('build_tools')
 
   _CopyTar(vm)
@@ -61,7 +62,7 @@ def _Install(vm):
 
   vm.RemoteCommand('cd %s && CFLAGS=-DHIST_NUM_OF_BUCKET=%s '
                    './configure --enable-burst '
-                   '--enable-demo --enable-histogram '
+                   '--enable-demo --enable-spin --enable-histogram '
                    '&& make && sudo make install' %
                    (NETPERF_DIR, FLAGS.netperf_histogram_buckets))
 
