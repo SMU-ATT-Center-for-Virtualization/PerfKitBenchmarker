@@ -411,7 +411,7 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams, netperf_rr_interval_t
       metadata['interval_time_us'] = netperf_rr_interval_time_us
 
       if FLAGS.netperf_rr_test_length:
-        remote_cmd_timeout = int((FLAGS.netperf_rr_test_length * 0.000001
+        remote_cmd_timeout = int((FLAGS.netperf_rr_test_length * 0.000001 *
                               netperf_rr_interval_time_us * (FLAGS.netperf_max_iter or 1) + 300))
 
     netperf_cmd = netperf_cmd + ('-- '
