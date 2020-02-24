@@ -29,15 +29,15 @@ import re
 flag_util.DEFINE_integerlist('ping_interval_time_us',
                              flag_util.IntegerList([1000]),
                              'time between pings in microseconds',
-                              module_name=__name__)
+                             module_name=__name__)
 
 flags.DEFINE_boolean('ping_also_run_using_external_ip', False,
                      'If set to True, the ping command will also be executed '
                      'using the external ips of the vms.')
 
 flag_util.DEFINE_integerlist('ping_send_count', flag_util.IntegerList([100]),
-                         'Number of packets to send with ping',
-                          module_name=__name__)
+                             'Number of packets to send with ping',
+                             module_name=__name__)
 
 FLAGS = flags.FLAGS
 
@@ -110,7 +110,8 @@ def Run(benchmark_spec):
   return results
 
 
-def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, ping_count):
+def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type,
+             interval_time, ping_count):
   """Run ping using 'sending_vm' to connect to 'receiving_ip'.
 
   Args:
@@ -133,7 +134,8 @@ def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, pin
     return []
 
   logging.info('Ping results (ip_type = %s):', ip_type)
-  ping_cmd = 'sudo ping -c %d -i %f %s' % (ping_count, interval_time_sec, receiving_ip)
+  ping_cmd = ('sudo ping -c %d -i %f %s' %
+              (ping_count, interval_time_sec, receiving_ip))
   stdout, _ = sending_vm.RemoteCommand(ping_cmd, should_log=True)
   stats = re.findall('([0-9]*\\.[0-9]*)', stdout.splitlines()[-1])
   if len(stats) > len(METRICS):
