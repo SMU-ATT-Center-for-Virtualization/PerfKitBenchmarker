@@ -24,6 +24,7 @@ from perfkitbenchmarker import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import flag_util
 import re
+import time
 
 
 flag_util.DEFINE_integerlist('ping_interval_time_us',
@@ -148,6 +149,9 @@ def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, pin
               'transaction_count': ping_count}
   for i, metric in enumerate(METRICS):
     results.append(sample.Sample(metric, float(stats[i]), 'ms', metadata))
+
+  time.sleep(5)
+
   return results
 
 
