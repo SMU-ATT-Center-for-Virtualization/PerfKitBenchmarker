@@ -428,6 +428,7 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams, netperf_rr_interval_t
     # Metadata to attach to samples
     metadata['max_iter'] = FLAGS.netperf_max_iter or 1
     metadata['sending_thread_count'] = num_streams
+    metadata['netperf_wait_time'] = FLAGS.netperf_wait_time
 
   elif benchmark_name.upper() == 'UDP_STREAM':
     netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
