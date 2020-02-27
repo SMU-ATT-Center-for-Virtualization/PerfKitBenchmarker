@@ -77,6 +77,9 @@ flag_util.DEFINE_integerlist('netperf_rr_interval_time_us', None,
                              'time between pings in microseconds', 
                              module_name=__name__)
 
+flag_util.DEFINE_integer('netperf_wait_time', 0,
+                         'time to wait between setup and test start')
+
 
 ALL_BENCHMARKS = ['TCP_RR', 'TCP_CRR', 'TCP_STREAM', 'UDP_RR', 'UDP_STREAM']
 flags.DEFINE_list('netperf_benchmarks', ALL_BENCHMARKS,
@@ -385,13 +388,14 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams, netperf_rr_interval_t
 
   #TODO change timeout and stuff depending on netperf flags and netperf test
   if (benchmark_name.upper() == 'TCP_RR' or benchmark_name.upper() == 'UDP_RR'):
-    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
+    netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} -s {wait_time} '
                    '-t {benchmark_name} -H {server_ip} {confidence} ').format(
                        netperf_path=netperf.NETPERF_PATH,
                        benchmark_name=benchmark_name,
                        server_ip=server_ip,
                        confidence=confidence,
-                       verbosity=verbosity)
+                       verbosity=verbosity,
+                       wait_time=FLAGS.netperf_wait_time)
 
     if FLAGS.netperf_rr_test_length:            
       netperf_cmd = netperf_cmd + ('-l {length} ').format(length=(-1 * abs(FLAGS.netperf_rr_test_length)))
