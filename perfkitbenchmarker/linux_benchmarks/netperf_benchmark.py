@@ -77,8 +77,8 @@ flag_util.DEFINE_integerlist('netperf_rr_interval_time_us', None,
                              'time between pings in microseconds', 
                              module_name=__name__)
 
-flag_util.DEFINE_integer('netperf_wait_time', 0,
-                         'time to wait between setup and test start')
+flag.DEFINE_integer('netperf_wait_time', 0,
+                    'time to wait between setup and test start')
 
 
 ALL_BENCHMARKS = ['TCP_RR', 'TCP_CRR', 'TCP_STREAM', 'UDP_RR', 'UDP_STREAM']
