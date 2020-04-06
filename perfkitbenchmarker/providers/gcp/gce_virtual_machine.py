@@ -717,6 +717,7 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
         'gce_shielded_secure_boot'] = self.gce_shielded_secure_boot
     result['boot_disk_type'] = self.boot_disk_type
     result['boot_disk_size'] = self.boot_disk_size
+    result['id'] = self.id
     return result
 
   def SimulateMaintenanceEvent(self):
