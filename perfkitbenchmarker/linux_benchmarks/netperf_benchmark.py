@@ -402,8 +402,8 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams, netperf_rr_interval_t
       metadata['netperf_test_length'] = FLAGS.netperf_rr_test_length
       metadata['netperf_test_length_unit'] = 'transactions'
 
-      remote_cmd_timeout = int((FLAGS.netperf_rr_test_length * 
-                            0.0001 * (FLAGS.netperf_max_iter or 1) + 300))
+      remote_cmd_timeout = int(( float(FLAGS.netperf_rr_test_length) * 
+                            0.0001 * (FLAGS.netperf_max_iter or 1) + 3000.0))
 
     else:
       netperf_cmd = netperf_cmd + ('-l {length} ').format(length=FLAGS.netperf_test_length)
@@ -415,8 +415,8 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams, netperf_rr_interval_t
       metadata['interval_time_us'] = netperf_rr_interval_time_us
 
       if FLAGS.netperf_rr_test_length:
-        remote_cmd_timeout = int((FLAGS.netperf_rr_test_length * 0.001 *
-                              netperf_rr_interval_time_us * (FLAGS.netperf_max_iter or 1) + 300))
+        remote_cmd_timeout = int((FLAGS.netperf_rr_test_length *
+                              netperf_rr_interval_time_us * (FLAGS.netperf_max_iter or 1) + 3000))
 
     netperf_cmd = netperf_cmd + ('-- '
                                  '-P ,{{data_port}} '
