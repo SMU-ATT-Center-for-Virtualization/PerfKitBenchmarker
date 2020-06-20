@@ -168,7 +168,7 @@ def ParsePspingResults(results, client_vm, server_vm, internal_ip_used):
     list of samples reflecting the psping results
   """
   print("OUTPUT")
-  print results
+  print(results)
   
   output_list = [val.rstrip('\r') for val in results.split('\n')]
 

@@ -109,8 +109,22 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   stdout, _ = sending_vm.RemoteCommand(iperf_cmd, should_log=True,
                                        timeout=FLAGS.iperf_runtime_in_seconds +
                                        timeout_buffer)
-
+  import sys
+  print("Python Version")
+  print(sys.version)
+  print("version info")
+  print(sys.version_info)
   print("OUTPUT")
+  print("stdout type:")
+  print(type(stdout))
+  window_size =str(re.search('TCP window size: \d+\.\d+', str(stdout)))
+  print("Window Size V1")
+  print("type:")
+  print(type(window_size))
+  print(window_size)
+  window_size = str(re.search('\d+\.\d+', str(window_size)))
+  print("Window Size Final")
+  print(window_size)
   print(stdout)
   # Example output from iperf that needs to be parsed
   # STDOUT: ------------------------------------------------------------
