@@ -178,7 +178,6 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   else:
     #Write and Err
     write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(stdout))
-    print(f"write: {str(write_err)}")
     write_re = re.findall('\d+', str(write_err))
     write = float(write_re[0])
     print("Write: {}".format(write))
