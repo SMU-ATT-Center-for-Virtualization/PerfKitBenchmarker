@@ -130,68 +130,82 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   #print(f"type of window_size: {type(window_size)}")
   #print(f"Window_size: {window_size[0]}")
   #This finds the actual window size
-  window_size_num = re.findall('\d+\.\d+', str(window_size))
+  window_size_num = (re.findall('\d+\.\d+', str(window_size)))
+  window_size_num = float(window_size_num[0])
   #print(f"type of window_size: {type(str(window_size_num))}")
-  print("TCP Window_size: {}".format(float(window_size_num[0])))
+  print("TCP Window_size: {}".format(window_size_num))
   #print(f"test: {str(window_size)[0]}")
   window_size_measurement = re.findall('\d+\.\d+ (\S+)', window_size[0])
   #print(f"test: {str(window_size)[0]}")
   #This is the Measurement unit for  the window size
-  print("TCP Window measurement unit: {}".format(window_size_measurement[0]))
+  window_size_measurement = window_size_measurement[0]
+  print("TCP Window measurement unit: {}".format(window_size_measurement))
   if multi_thread:
     #Write and Err
     write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(multi_thread))
     #print(f"write: {str(write_err)[0]}")
-    write = re.findall('\d+', str(write_err))
-    print("Write: {}".format(float(write[0])))
-    print("Err: {}".format(float(write[1])))
+    write_re = re.findall('\d+', str(write_err))
+    write = float(write_re[0])
+    print("Write: {}".format(write))
+    err = float(write_re[1])
+    print("Err: {}".format(err))
 
     # Retry
-    retry = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(multi_thread))
-    print("Retry: {}".format(float(retry[0])))
+    retry_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(multi_thread))
+    retry = float(retry_re[0])
+    print("Retry: {}".format(retry))
 
     # Cwnd
     cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', multi_thread[0])
     #print(cwnd_rtt)
-    cwnd = re.findall('-*\d+\s*', cwnd_rtt[0])
+    cwnd_re = re.findall('-*\d+\s*', cwnd_rtt[0])
     #print(cwnd_rtt)
-    print("Cwnd: {}".format(float(cwnd[0])))
-    cwnd_unit = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
-    print("Cwnd Unit: {}".format(cwnd_unit[0]))
+    cwnd = float(cwnd_re[0])
+    print("Cwnd: {}".format(cwnd))
+    cwnd_unit_re = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
+    cwnd_unit = cwnd_unit_re[0]
+    print("Cwnd Unit: {}".format(cwnd_unit_re))
+    rtt = float(cwnd_re[1])
     print("RTT: {}".format(float(cwnd[1])))
-    print("RTT Unit: {}".format(cwnd_unit[1]))
+    rtt_unit = cwnd_unit_re[1]
+    print("RTT Unit: {}".format(cwnd_unit_re[1]))
+
+
+    # Netpwr
+    #Write and Err
+    write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(multi_thread))
+    #print(f"write: {str(write_err)[0]}")
+    write_re = re.findall('\d+', str(write_err))
+    write = float(write_re[0])
+    print("Write: {}".format(write))
+    err = float(write_re[1])
+    print("Err: {}".format(err))
+
+    # Retry
+    retry_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(multi_thread))
+    retry = float(retry_re[0])
+    print("Retry: {}".format(retry))
+
+    # Cwnd
+    cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', multi_thread[0])
+    #print(cwnd_rtt)
+    cwnd_re = re.findall('-*\d+\s*', cwnd_rtt[0])
+    #print(cwnd_rtt)
+    cwnd = float(cwnd_re[0])
+    print("Cwnd: {}".format(cwnd))
+    cwnd_unit_re = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
+    cwnd_unit = cwnd_unit_re[0]
+    print("Cwnd Unit: {}".format(cwnd_unit_re))
+    rtt = float(cwnd_re[1])
+    print("RTT: {}".format(float(cwnd[1])))
+    rtt_unit = cwnd_unit_re[1]
+    print("RTT Unit: {}".format(cwnd_unit_re[1]))
 
 
     # Netpwr
     netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', multi_thread[0])
-    print("Netpwr: {}".format(float(netpwr[0])))
-  else:
-    #Write and Err
-    write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(stdout))
-    #print(f"write: {str(write_err)[0]}")
-    write = re.findall('\d+', str(write_err))
-    print("Write: {}".format(float(write[0])))
-    print("Err: {}".format(float(write[1])))
-
-    # Retry
-    retry = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(stdout))
-    print("Retry: {}".format(float(retry[0])))
-
-    # Cwnd
-    cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', stdout)
-    #print(cwnd_rtt)
-    cwnd = re.findall('-*\d+\s*', cwnd_rtt[0])
-    #print(cwnd_rtt)
-    print("Cwnd: {}".format(float(cwnd[0])))
-    cwnd_unit = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
-    print("Cwnd Unit: {}".format(cwnd_unit[0]))
-    print("RTT: {}".format(float(cwnd[1])))
-    print("RTT Unit: {}".format(cwnd_unit[1]))
-
-
-    # Netpwr
-    netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
-    print("Netpwr: {}".format(float(netpwr[0])))
+    netpwr = float(netpwr[0])
+    print("Netpwr: {}".format(netpwr))
   print(stdout)
   # Example output from iperf that needs to be parsed
   # STDOUT: ------------------------------------------------------------
@@ -246,7 +260,15 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       'sending_thread_count': thread_count,
       'sending_zone': sending_vm.zone,
       'runtime_in_seconds': FLAGS.iperf_runtime_in_seconds,
-      'ip_type': ip_type
+      'ip_type': ip_type,
+      'buffer_size' : buffer_size,
+      'tcp_window_size': window_size_num,
+      'write' : write,
+      'err' : err,
+      'retry' : retry,
+      'cwnd' : cwnd,
+      'rtt' : rtt,
+      'netpwr' : netpwr
   }
   return sample.Sample('Throughput', total_throughput, 'Mbits/sec', metadata)
 
