@@ -120,9 +120,9 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   buffer_size = re.findall('Write buffer size: \d+\.\d+ \S+', stdout)
   #print(f"Find Buffer: {buffer_size}")
   buffer_size_num = re.findall('\d+\.\d+', str(buffer_size))
-  print(f"Buffer Size Num: {float(buffer_size_num[0])}")
+  print("Buffer Size Num: {}".format(float(buffer_size_num[0])))
   buffer_size_measurement = re.findall('\d+\.\d+ (\S+)', buffer_size[0])
-  print(f"Buffer Size Unit: {buffer_size_measurement[0]}")
+  print("Buffer Size Unit: {}".format(buffer_size_measurement[0]))
 
 
   #print(f"type of window_size: {type(window_size)}")
@@ -130,39 +130,39 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   #This finds the actual window size
   window_size_num = re.findall('\d+\.\d+', str(window_size))
   #print(f"type of window_size: {type(str(window_size_num))}")
-  print(f"TCP Window_size: {float(window_size_num[0])}")
+  print("TCP Window_size: {}".format(float(window_size_num[0])))
   #print(f"test: {str(window_size)[0]}")
   window_size_measurement = re.findall('\d+\.\d+ (\S+)', window_size[0])
   #print(f"test: {str(window_size)[0]}")
   #This is the Measurement unit for  the window size
-  print(f"TCP Window measurement unit: {window_size_measurement[0]}")
+  print("TCP Window measurement unit: {}".format(window_size_measurement[0]))
   
   #Write and Err
   write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(stdout))
   #print(f"write: {str(write_err)[0]}")
   write = re.findall('\d+', str(write_err))
-  print(f"Write: {float(write[0])}")
-  print(f"Err: {float(write[1])}")
+  print("Write: {}".format(float(write[0])))
+  print("Err: {}".format(float(write[1])))
 
   # Retry
   retry = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(stdout))
-  print(f"Retry: {float(retry[0])}")
+  print("Retry: {}".format(float(retry[0])))
 
   # Cwnd
   cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', stdout)
   #print(cwnd_rtt)
   cwnd = re.findall('-*\d+\s*', cwnd_rtt[0])
   #print(cwnd_rtt)
-  print(f"Cwnd: {float(cwnd[0])}")
+  print("Cwnd: {}".format(float(cwnd[0])))
   cwnd_unit = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
-  print(f"Cwnd Unit: {cwnd_unit[0]}")
-  print(f"RTT: {float(cwnd[1])}")
-  print(f"RTT Unit: {cwnd_unit[1]}")
+  print("Cwnd Unit: {}".format(cwnd_unit[0]))
+  print("RTT: {}".format(float(cwnd[1])))
+  print("RTT Unit: {}".format(cwnd_unit[1]))
 
 
   # Netpwr
   netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
-  print(f"Netpwr: {float(netpwr[0])}")
+  print("Netpwr: {}".format(float(netpwr[0])))
   print(stdout)
   # Example output from iperf that needs to be parsed
   # STDOUT: ------------------------------------------------------------
