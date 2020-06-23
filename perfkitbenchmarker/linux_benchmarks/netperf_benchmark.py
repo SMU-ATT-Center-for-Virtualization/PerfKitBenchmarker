@@ -59,6 +59,9 @@ flag_util.DEFINE_integerlist('netperf_num_streams', flag_util.IntegerList([1]),
                              'Number of netperf processes to run. Netperf '
                              'will run once for each value in the list.',
                              module_name=__name__)
+flags.DEFINE_bool('netperf_rr_num_streams_override', True,
+                  'If true, will only use a single stream for TCP_RR and UDP_RR tests',
+                  module_name=__name__)
 flags.DEFINE_integer('netperf_thinktime', 0,
                      'Time in nanoseconds to do work for each request.')
 flags.DEFINE_integer('netperf_thinktime_array_size', 0,
@@ -388,6 +391,8 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams, netperf_rr_interval_t
 
   #TODO change timeout and stuff depending on netperf flags and netperf test
   if (benchmark_name.upper() == 'TCP_RR' or benchmark_name.upper() == 'UDP_RR'):
+    if FLAGS.netperf_rr_num_streams_override:
+      num_streams = 1
     netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} -s {wait_time} '
                    '-t {benchmark_name} -H {server_ip} {confidence} ').format(
                        netperf_path=netperf.NETPERF_PATH,
@@ -614,7 +619,7 @@ def Run(benchmark_spec):
     assert num_streams >= 1
 
     for netperf_benchmark in FLAGS.netperf_benchmarks:
-      print("HERE1")
+
       if netperf_benchmark in ['TCP_RR', 'UDP_RR'] and FLAGS.netperf_rr_interval_time_us:
         for interval in FLAGS.netperf_rr_interval_time_us:
           print("HERE2")
