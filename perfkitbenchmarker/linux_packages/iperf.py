@@ -18,6 +18,7 @@
 import posixpath
 
 from perfkitbenchmarker import errors
+from perfkitbenchmarker.data import ResourceNotFound
 from perfkitbenchmarker.linux_packages import INSTALL_DIR
 
 PACKAGE_NAME = 'iperf'
