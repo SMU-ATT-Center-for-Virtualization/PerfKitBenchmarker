@@ -172,9 +172,13 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
 
 
     # Netpwr
+    netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', multi_thread[0])
+    netpwr = float(netpwr[0])
+    print("Netpwr: {}".format(netpwr))
+  else:
     #Write and Err
-    write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(multi_thread))
-    #print(f"write: {str(write_err)[0]}")
+    write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(stdout))
+    print(f"write: {str(write_err)}")
     write_re = re.findall('\d+', str(write_err))
     write = float(write_re[0])
     print("Write: {}".format(write))
@@ -182,12 +186,12 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     print("Err: {}".format(err))
 
     # Retry
-    retry_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(multi_thread))
+    retry_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(stdout))
     retry = float(retry_re[0])
     print("Retry: {}".format(retry))
 
     # Cwnd
-    cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', multi_thread[0])
+    cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)',stdout)
     #print(cwnd_rtt)
     cwnd_re = re.findall('-*\d+\s*', cwnd_rtt[0])
     #print(cwnd_rtt)
@@ -195,15 +199,15 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     print("Cwnd: {}".format(cwnd))
     cwnd_unit_re = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
     cwnd_unit = cwnd_unit_re[0]
-    print("Cwnd Unit: {}".format(cwnd_unit_re))
+    print("Cwnd Unit: {}".format(cwnd_unit))
     rtt = float(cwnd_re[1])
-    print("RTT: {}".format(float(cwnd[1])))
+    print("RTT: {}".format(rtt))
     rtt_unit = cwnd_unit_re[1]
-    print("RTT Unit: {}".format(cwnd_unit_re[1]))
+    print("RTT Unit: {}".format(rtt_unit))
 
 
     # Netpwr
-    netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', multi_thread[0])
+    netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
     netpwr = float(netpwr[0])
     print("Netpwr: {}".format(netpwr))
   print(stdout)
