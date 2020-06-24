@@ -119,11 +119,11 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   print("MultiThread: {}".format(bool(multi_thread)))
   window_size = re.findall('TCP window size: \d+\.\d+ \S+', stdout)
   #Write Buffer
-  buffer_size = re.findall('Write buffer size: \d+\.\d+ \S+', stdout)
+  buffer_size_re = re.findall('Write buffer size: \d+\.\d+ \S+', stdout)
   #print(f"Find Buffer: {buffer_size}")
-  buffer_size_num = re.findall('\d+\.\d+', str(buffer_size))
-  print("Buffer Size Num: {}".format(float(buffer_size_num[0])))
-  buffer_size_measurement = re.findall('\d+\.\d+ (\S+)', buffer_size[0])
+  buffer_size = re.findall('\d+\.\d+', str(buffer_size_re))
+  print("Buffer Size Num: {}".format(float(buffer_size[0])))
+  buffer_size_measurement = re.findall('\d+\.\d+ (\S+)', buffer_size_re[0])
   print("Buffer Size Unit: {}".format(buffer_size_measurement[0]))
 
 
@@ -156,26 +156,41 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     print("Retry: {}".format(retry))
 
     # Cwnd
-    cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', multi_thread[0])
+    cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', stdout)
+    #print("cwnd_rtt all: {}".format(cwnd_rtt))
     #print(cwnd_rtt)
+    rtt = 0
+    for i in cwnd_rtt:
+      rtt_part = re.findall('\/(-*\d+)', i)
+      #print("rtt_part: {}".format(rtt_part))
+      rtt = rtt + float(rtt_part[0])
+    #calculating average
+    rtt = round(decimal.Decimal(rtt) / len(cwnd_rtt), 2)
+    
     cwnd_re = re.findall('-*\d+\s*', cwnd_rtt[0])
     #print(cwnd_rtt)
     cwnd = float(cwnd_re[0])
     print("Cwnd: {}".format(cwnd))
     cwnd_unit_re = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
+    #print("cwnd_unit: {}".format(cwnd_unit_re))
     cwnd_unit = cwnd_unit_re[0]
-    print("Cwnd Unit: {}".format(cwnd_unit_re))
-    rtt = float(cwnd_re[1])
-    print("RTT: {}".format(float(cwnd[1])))
+    print("Cwnd Unit: {}".format(cwnd_unit))
+    #print("RTT ALL: {}".format(cwnd_re))
+    #rtt = float(cwnd_re[1])
+    print("RTT: {}".format(rtt))
     rtt_unit = cwnd_unit_re[1]
     print("RTT Unit: {}".format(cwnd_unit_re[1]))
-
-
     # Netpwr
-    netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', multi_thread[0])
-    netpwr = float(netpwr[0])
+    netpwr_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
+    #print("netpwr: {}".format(netpwr_re))
+    netpwr = 0
+    for i in netpwr_re:
+      netpwr = netpwr + float(i)
+    netpwr = netpwr / len(netpwr_re)
+    netpwr = round(decimal.Decimal(netpwr), 2)
     print("Netpwr: {}".format(netpwr))
   else:
+    
     #Write and Err
     write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(stdout))
     write_re = re.findall('\d+', str(write_err))
