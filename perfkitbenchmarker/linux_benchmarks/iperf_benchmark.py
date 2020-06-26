@@ -115,7 +115,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   print("version info")
   print(sys.version_info)
   print("OUTPUT")
-  multi_thread = re.findall('\[SUM\]\s+\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s\w+\/\w+\s+\d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+\d+\.\d+', stdout)
+  multi_thread = re.findall('\[SUM\]\s+\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s\w+\/\w+\s+\d+\/\d+\s+\d+\s+', stdout)
   print("MultiThread: {}".format(bool(multi_thread)))
   window_size = re.findall('TCP window size: \d+\.\d+ \S+', stdout)
   #Write Buffer
