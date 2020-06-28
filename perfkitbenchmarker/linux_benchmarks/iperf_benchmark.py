@@ -22,6 +22,7 @@ Runs Iperf to collect network throughput.
 
 import logging
 import re
+import decimal
 
 from perfkitbenchmarker import configs
 from perfkitbenchmarker import flags
