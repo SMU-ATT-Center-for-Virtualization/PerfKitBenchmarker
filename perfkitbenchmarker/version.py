@@ -41,7 +41,7 @@ def _GetVersion():
     except IOError:
       # Could not determine version.
       return 'unknown'
-  return version.rstrip('\n')
+  return version.rstrip(b'\n')
 
 
 VERSION = _GetVersion()
