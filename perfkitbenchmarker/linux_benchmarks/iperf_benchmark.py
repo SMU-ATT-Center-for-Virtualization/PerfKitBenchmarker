@@ -41,7 +41,7 @@ flags.DEFINE_integer('iperf_timeout', None,
                      'Number of seconds to wait in '
                      'addition to iperf runtime before '
                      'killing iperf client command.',
-                     lower_bound=1)]
+                     lower_bound=1)
 
 flags.DEFINE_integer('iperf_interval', 
                     0,
