@@ -152,7 +152,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     #print(f"write: {str(write_err)[0]}")
     write_re = re.findall('\d+', str(write_err))
     write = float(write_re[0])
-    print("Write: {}".format(write))3
+    print("Write: {}".format(write))
     err = float(write_re[1])
     print("Err: {}".format(err))
 
