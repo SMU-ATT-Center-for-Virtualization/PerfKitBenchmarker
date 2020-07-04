@@ -41,7 +41,11 @@ flags.DEFINE_integer('iperf_timeout', None,
                      'Number of seconds to wait in '
                      'addition to iperf runtime before '
                      'killing iperf client command.',
-                     lower_bound=1)
+                     lower_bound=1)]
+
+flags.DEFINE_integer('iperf_interval', 
+                    0,
+                    'This will set how long the intervals of the scan will be.')
 
 FLAGS = flags.FLAGS
 
@@ -100,10 +104,11 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   Returns:
     A Sample.
   """
-  iperf_cmd = ('iperf -e --client %s --port %s --format m --time %s -P %s' %
+  iperf_cmd = ('iperf -e --client %s --port %s --format m --time %s -P %s -i %s' %
                (receiving_ip_address, IPERF_PORT,
                 FLAGS.iperf_runtime_in_seconds,
-                thread_count))
+                thread_count,
+                iperf_interval))
   # the additional time on top of the iperf runtime is to account for the
   # time it takes for the iperf process to start and exit
   timeout_buffer = FLAGS.iperf_timeout or 30 + thread_count
@@ -147,7 +152,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     #print(f"write: {str(write_err)[0]}")
     write_re = re.findall('\d+', str(write_err))
     write = float(write_re[0])
-    print("Write: {}".format(write))
+    print("Write: {}".format(write))3
     err = float(write_re[1])
     print("Err: {}".format(err))
 
