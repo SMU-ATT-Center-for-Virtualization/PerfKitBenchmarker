@@ -108,7 +108,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
                (receiving_ip_address, IPERF_PORT,
                 FLAGS.iperf_runtime_in_seconds,
                 thread_count,
-                iperf_interval))
+                FLAGS.iperf_interval))
   # the additional time on top of the iperf runtime is to account for the
   # time it takes for the iperf process to start and exit
   timeout_buffer = FLAGS.iperf_timeout or 30 + thread_count
