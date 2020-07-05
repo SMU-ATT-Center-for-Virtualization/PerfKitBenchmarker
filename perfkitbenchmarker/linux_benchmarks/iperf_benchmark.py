@@ -104,6 +104,12 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   Returns:
     A Sample.
   """
+  print("Iperf command that will be run:")
+  print('iperf -e --client %s --port %s --format m --time %s -P %s -i %s' %
+               (receiving_ip_address, IPERF_PORT,
+                FLAGS.iperf_runtime_in_seconds,
+                thread_count,
+                FLAGS.iperf_interval))
   iperf_cmd = ('iperf -e --client %s --port %s --format m --time %s -P %s -i %s' %
                (receiving_ip_address, IPERF_PORT,
                 FLAGS.iperf_runtime_in_seconds,
