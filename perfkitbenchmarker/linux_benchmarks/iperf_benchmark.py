@@ -279,10 +279,11 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     # If there is no sum you have try and figure out an estimate
     # which happens when threads start at different times.  The code
     # below will tend to overestimate a bit.
-    print("Pre Thread Values: {}".format(thread_values))
     thread_values = re.findall('\[\s+(\d+)\]', stdout)
+    print("Pre Thread Values: {}".format(thread_values))
     list_of_threads = []
     for thread in thread_values:
+      print("list of threads: {}".format(list_of_threads))
       if thread in list_of_threads:
         thread_values.remove(thread)
       else:
