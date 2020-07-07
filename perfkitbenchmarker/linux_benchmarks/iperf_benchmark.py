@@ -282,15 +282,15 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     thread_values = re.findall('\[\s+(\d+)\]', stdout)
     print("Pre Thread Values: {}".format(thread_values))
     list_of_threads = []
+    
     for thread in thread_values:
       print("list of threads: {}".format(list_of_threads))
-      if thread in list_of_threads:
-        thread_values.remove(thread)
-      else:
+      if thread not in list_of_threads:
         list_of_threads.append(thread)
+    
     print("Post Thread Values: {}".format(thread_values))
     print("list of threads: {}".format(list_of_threads))
-    if len(thread_values) != thread_count:
+    if len(list_of_threads) != thread_count:
       raise ValueError('Only %s out of %s iperf threads reported a'
                        ' throughput value.' %
                        (len(thread_values), thread_count))
