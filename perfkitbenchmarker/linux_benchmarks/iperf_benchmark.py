@@ -279,7 +279,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     # If there is no sum you have try and figure out an estimate
     # which happens when threads start at different times.  The code
     # below will tend to overestimate a bit.
-
+    print("Pre Thread Values: {}".format(thread_values))
     thread_values = re.findall('\[\s+(\d+)\]', stdout)
     list_of_threads = []
     for thread in thread_values:
@@ -287,7 +287,8 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
         thread_values.remove(thread)
       else:
         list_of_threads.append(thread)
-
+    print("Post Thread Values: {}".format(thread_values))
+    print("list of threads: {}".format(list_of_threads))
     if len(thread_values) != thread_count:
       raise ValueError('Only %s out of %s iperf threads reported a'
                        ' throughput value.' %
