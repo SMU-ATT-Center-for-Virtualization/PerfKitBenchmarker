@@ -279,7 +279,14 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     # If there is no sum you have try and figure out an estimate
     # which happens when threads start at different times.  The code
     # below will tend to overestimate a bit.
-    thread_values = re.findall('\[.*\d+\].*\s+(\d+\.?\d*).Mbits/sec', stdout)
+
+    thread_values = re.findall('\[\s+(\d+)\]', stdout)
+    list_of_threads = []
+    for thread in thread_values:
+      if thread in list_of_threads:
+        thread_values.remove(thread)
+      else:
+        list_of_threads.append(thread)
 
     if len(thread_values) != thread_count:
       raise ValueError('Only %s out of %s iperf threads reported a'
