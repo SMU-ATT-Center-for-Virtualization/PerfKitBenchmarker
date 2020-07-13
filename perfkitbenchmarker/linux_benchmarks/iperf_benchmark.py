@@ -123,6 +123,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   buffer_size_re = re.findall('Write buffer size: \d+\.\d+ \S+', stdout)
   #print(f"Find Buffer: {buffer_size}")
   buffer_size = re.findall('\d+\.\d+', str(buffer_size_re))
+  buffer_size_num = float(buffer_size[0])
   print("Buffer Size Num: {}".format(float(buffer_size[0])))
   buffer_size_measurement = re.findall('\d+\.\d+ (\S+)', buffer_size_re[0])
   print("Buffer Size Unit: {}".format(buffer_size_measurement[0]))
@@ -280,7 +281,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       'sending_zone': sending_vm.zone,
       'runtime_in_seconds': FLAGS.iperf_runtime_in_seconds,
       'ip_type': ip_type,
-      'buffer_size' : buffer_size,
+      'buffer_size' : buffer_size_num,
       'tcp_window_size': window_size_num,
       'write' : write,
       'err' : err,
