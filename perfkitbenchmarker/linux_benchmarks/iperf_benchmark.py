@@ -132,7 +132,6 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   import sys
   
   #This will determine if there are multiple threads or not in the benchmark because it will match to the SUM line present in multi_thread tests
-  #This will determine if there are multiple threads or not in the benchmark because it will match to the SUM line present in multi_thread tests
   multi_thread = re.findall('\[SUM\]\s+\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s\w+\/\w+\s+\d+\/\d+\s+\d+\s+', stdout)
   print("MultiThread: {}".format(bool(multi_thread)))
   #This matches for the TCP Window information
@@ -161,14 +160,16 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("Transfer Total: {}".format(transfer))
       
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
-      print("transfer_unit: {}".format(transfer_unit))
+      print("transfer_unit: {}".format(transfer_unit.group(1)))
 
       #Bandwidth information 
       bandwidth_list = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+(\d+)', stdout)
       bandwidth = bandwidth_list[(len(bandwidth_list)-1)]
       
-      bandwidth_units = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
-
+      print("Bandwidth: {}".format(bandwidth))
+      
+      bandwidth_units = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
+      print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
       #Write and Err
       write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(multi_thread))
 
@@ -223,14 +224,15 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("Transfer Total: {}".format(transfer))
       
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
-      print("transfer_unit: {}".format(transfer_unit))
+      print("transfer_unit: {}".format(transfer_unit.group(1)))
 
       #Bandwidth information 
-      bandwidth_list = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+(\d+)', stdout)
+      bandwidth_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+(\d+)', stdout)
       bandwidth = bandwidth_list[(len(bandwidth_list)-1)]
+      print("Bandwidth: {}".format(bandwidth))
       
-      bandwidth_units = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
-      
+      bandwidth_units = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
+      print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
       #Write and Err
       write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(stdout))
       write_re = re.findall('\d+', str(write_err))
