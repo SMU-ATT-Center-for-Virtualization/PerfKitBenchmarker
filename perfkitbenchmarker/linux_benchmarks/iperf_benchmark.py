@@ -137,17 +137,16 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   #This matches for the TCP Window information
   window_size = re.findall('TCP window size: \d+\.\d+ \S+', stdout)
   #Write Buffer
-  buffer_size_re = re.findall('Write buffer size: \d+\.\d+ \S+', stdout)
-  buffer_size = re.findall('\d+\.\d+', str(buffer_size_re))
+  buffer_size = re.findall('buffer size: \d+\.(\d+)', stdout)
   print("Buffer Size Num: {}".format(float(buffer_size[0])))
-  buffer_size_measurement = re.findall('\d+\.\d+ (\S+)', buffer_size_re[0])
+  buffer_size_measurement = re.findall('buffer size: \d+\.\d+ (\S+)', stdout)
   print("Buffer Size Unit: {}".format(buffer_size_measurement[0]))
 
   #This finds the actual window size
-  window_size_num = (re.findall('\d+\.\d+', str(window_size)))
+  window_size_num = re.findall('buffer size: \d+\.(\d+)', stdout)
   window_size_num = float(window_size_num[0])
   print("TCP Window_size: {}".format(window_size_num))
-  window_size_measurement = re.findall('\d+\.\d+ (\S+)', window_size[0])
+  window_size_measurement = re.findall('window size: \d+\.\d+ (\S+)', stdout)
   #This is the Measurement unit for  the window size
   window_size_measurement = window_size_measurement[0]
   print("TCP Window measurement unit: {}".format(window_size_measurement))
@@ -171,7 +170,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       bandwidth_units = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
       print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
       #Write and Err
-      write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(multi_thread))
+      write_err = re.findall('(\d+\/\d+))', str(multi_thread))
 
       #print(f"write: {str(write_err)[0]}")
       write_re = re.findall('\d+', str(write_err))
@@ -181,12 +180,12 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("Err: {}".format(err))
 
       # Retry
-      retry_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(multi_thread))
+      retry_re = re.findall('\d+\/\d+\s+(\d+)', str(multi_thread))
       retry = float(retry_re[0])
       print("Retry: {}".format(retry))
       #######################################################################################################
       # Cwnd
-      cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', stdout)
+      cwnd_rtt = re.findall('\d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', stdout)
       rtt = 0
       for i in cwnd_rtt:
           rtt_part = re.findall('\/(-*\d+)', i)
@@ -209,7 +208,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("RTT Unit: {}".format(cwnd_unit_re[1]))
       #######################################################################################################
       # Netpwr
-      netpwr_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
+      netpwr_re = re.findall('\w+\/\d+\s+\w+\s+(\d+\.\d+))', stdout)
       #print("netpwr: {}".format(netpwr_re))
       netpwr = 0
       for i in netpwr_re:
