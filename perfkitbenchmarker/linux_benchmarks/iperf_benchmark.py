@@ -233,7 +233,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       bandwidth_units = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
       print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
       #Write and Err
-      write_err = re.findall('\d+ Mbits\/sec\s+(\d+\/\d+)', str(stdout))
+      write_err = re.findall('\s+(\d+\/\d+))', str(stdout))
       write_re = re.findall('\d+', str(write_err))
       write = float(write_re[0])
       print("Write: {}".format(write))
@@ -241,12 +241,12 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("Err: {}".format(err))
 
       # Retry
-      retry_re = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+(\d+)', str(stdout))
+      retry_re = re.findall('\s+ \d+\/\d+\s+(\d+)', str(stdout))
       retry = float(retry_re[0])
       print("Retry: {}".format(retry))
 
       # Cwnd
-      cwnd_rtt = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)',stdout)
+      cwnd_rtt = re.findall('\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)',stdout)
       #print(cwnd_rtt)
       cwnd_re = re.findall('-*\d+\s*', cwnd_rtt[0])
       #print(cwnd_rtt)
@@ -262,7 +262,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
 
 
       # Netpwr
-      netpwr = re.findall('\d+ Mbits\/sec\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
+      netpwr = re.findall('\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
       netpwr = float(netpwr[0])
       print("Netpwr: {}".format(netpwr))
   print(stdout)
