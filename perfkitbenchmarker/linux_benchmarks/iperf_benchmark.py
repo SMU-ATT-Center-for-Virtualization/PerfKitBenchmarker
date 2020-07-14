@@ -233,7 +233,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       bandwidth_units = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
       print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
       #Write and Err
-      write_err = re.findall('\s+(\d+\/\d+))', str(stdout))
+      write_err = re.findall('\s+(\d+\/\d+)', str(stdout))
       write_re = re.findall('\d+', str(write_err))
       write = float(write_re[0])
       print("Write: {}".format(write))
