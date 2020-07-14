@@ -163,7 +163,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("transfer_unit: {}".format(transfer_unit.group(1)))
 
       #Bandwidth information 
-      bandwidth_list = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+(\d+)', stdout)
+      bandwidth_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+(\d+)', stdout)
       bandwidth = bandwidth_list[(len(bandwidth_list)-1)]
       
       print("Bandwidth: {}".format(bandwidth))
