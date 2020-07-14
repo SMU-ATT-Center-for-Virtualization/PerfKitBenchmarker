@@ -351,7 +351,11 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       'retry' : retry,
       'cwnd' : cwnd,
       'rtt' : rtt,
-      'netpwr' : netpwr
+      'netpwr' : netpwr,
+      'transfer' : transfer,
+      'transfer units' : transfer_unit.group(1),
+      'bandwidth' : bandwidth,
+      'bandwidth units' : bandwidth_units.group(1)
   }
   return sample.Sample('Throughput', total_throughput, 'Mbits/sec', metadata)
 
