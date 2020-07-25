@@ -159,7 +159,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("Transfer Total: {}".format(transfer))
       transfer_interval_data= []
       for x in range(len(transfer_list) -2 ):
-        transfer_interval_data.append(x)
+        transfer_interval_data.append(transfer_list[x])
 
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
       print("transfer_unit: {}".format(transfer_unit.group(1)))
@@ -226,7 +226,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       print("Transfer Total: {}".format(transfer))
       transfer_interval_data= []
       for x in range(len(transfer_list) -2 ):
-        transfer_interval_data.append(x)
+        transfer_interval_data.append(transfer_list[x])
 
       
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
