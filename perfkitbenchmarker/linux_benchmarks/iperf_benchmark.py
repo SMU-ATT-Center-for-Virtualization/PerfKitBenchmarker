@@ -221,6 +221,8 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       transfer_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+(\d+)', stdout)
       transfer = transfer_list[(len(transfer_list)-1)]
       print("Transfer Total: {}".format(transfer))
+
+
       
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
       print("transfer_unit: {}".format(transfer_unit.group(1)))
@@ -334,6 +336,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   for value in thread_values:
     total_throughput += float(value)
 
+
   metadata = {
       # The meta data defining the environment
       'receiving_machine_type': receiving_vm.machine_type,
@@ -351,11 +354,14 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       'cwnd' : cwnd,
       'rtt' : rtt,
       'netpwr' : netpwr,
+      'transfer list' : transfer_list,
+      'transfer list size' : len(transfer_list),
       'transfer' : transfer,
       'transfer units' : transfer_unit.group(1),
       'bandwidth' : bandwidth,
       'bandwidth units' : bandwidth_units.group(1)
   }
+  print("meta data: {}".format(metadata))
   return sample.Sample('Throughput', total_throughput, 'Mbits/sec', metadata)
 
 
