@@ -224,7 +224,9 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       transfer_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+(\d+)', stdout)
       transfer = transfer_list[(len(transfer_list)-1)]
       print("Transfer Total: {}".format(transfer))
-
+      transfer_interval_data= []
+      for x in range(len(transfer_list) -2 ):
+        transfer_interval_data.append(x)
 
       
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
