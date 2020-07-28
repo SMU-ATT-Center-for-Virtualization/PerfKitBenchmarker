@@ -114,15 +114,7 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
                 FLAGS.iperf_runtime_in_seconds,
                 thread_count,
                 FLAGS.iperf_interval))
-  # iperf_cmd = ('iperf -e --client %s --port %s --format m --time %s -P %s -i %s' %
-  #              (receiving_ip_address, IPERF_PORT,
-  #               FLAGS.iperf_runtime_in_seconds,
-  #               thread_count,
-  #               FLAGS.iperf_interval))
-  # iperf_cmd = ('iperf -e --client %s --port %s --format m --time %s -P %s' %
-  #              (receiving_ip_address, IPERF_PORT,
-  #               FLAGS.iperf_runtime_in_seconds,
-  #               thread_count))
+  
   # the additional time on top of the iperf runtime is to account for the
   # time it takes for the iperf process to start and exit
   timeout_buffer = FLAGS.iperf_timeout or 30 + thread_count
@@ -133,59 +125,64 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
   
   #This will determine if there are multiple threads or not in the benchmark because it will match to the SUM line present in multi_thread tests
   multi_thread = re.findall('\[SUM\]\s+\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s\w+\/\w+\s+\d+\/\d+\s+\d+\s+', stdout)
-  print("MultiThread: {}".format(bool(multi_thread)))
+  #print("MultiThread: {}".format(bool(multi_thread)))
   #This matches for the TCP Window information
   window_size = re.findall('TCP window size: \d+\.\d+ \S+', stdout)
   #Write Buffer
   buffer_size = re.findall('buffer size: \d+\.(\d+)', stdout)
-  print("Buffer Size Num: {}".format(float(buffer_size[0])))
+  #print("Buffer Size Num: {}".format(float(buffer_size[0])))
   buffer_size_measurement = re.findall('buffer size: \d+\.\d+ (\S+)', stdout)
-  print("Buffer Size Unit: {}".format(buffer_size_measurement[0]))
+  #print("Buffer Size Unit: {}".format(buffer_size_measurement[0]))
 
   #This finds the actual window size
   window_size_num = re.findall('buffer size: \d+\.(\d+)', stdout)
   window_size_num = float(window_size_num[0])
-  print("TCP Window_size: {}".format(window_size_num))
+  #print("TCP Window_size: {}".format(window_size_num))
   window_size_measurement = re.findall('window size: \d+\.\d+ (\S+)', stdout)
   #This is the Measurement unit for  the window size
   window_size_measurement = window_size_measurement[0]
-  print("TCP Window measurement unit: {}".format(window_size_measurement))
+  #print("TCP Window measurement unit: {}".format(window_size_measurement))
+  
+  
+  
   #######################################################################################################
   #\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s\w+\/\w+\s+\d+\/\d+\s+\d+\s+-?\d+\w+/\d+\s+\w+\s+\d+.\d+   This is the regex to match all of the interval strings
   if multi_thread:
       #Transfer 
       transfer_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+(\d+)', stdout)
       transfer = transfer_list[(len(transfer_list)-1)]
-      print("Transfer Total: {}".format(transfer))
+      #print("Transfer Total: {}".format(transfer))
       transfer_interval_data= []
       for x in range(len(transfer_list) -2 ):
         transfer_interval_data.append(transfer_list[x])
 
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
-      print("transfer_unit: {}".format(transfer_unit.group(1)))
+      #print("transfer_unit: {}".format(transfer_unit.group(1)))
 
       #Bandwidth information 
       bandwidth_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+(\d+)', stdout)
       bandwidth = bandwidth_list[(len(bandwidth_list)-1)]
       
-      print("Bandwidth: {}".format(bandwidth))
+      #print("Bandwidth: {}".format(bandwidth))
       
       bandwidth_units = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
-      print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
+      #print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
       #Write and Err
       write_err = re.findall('(\d+\/\d+))', str(multi_thread))
 
       #print(f"write: {str(write_err)[0]}")
       write_re = re.findall('\d+', str(write_err))
       write = float(write_re[0])
-      print("Write: {}".format(write))
+      #print("Write: {}".format(write))
       err = float(write_re[1])
-      print("Err: {}".format(err))
+      #print("Err: {}".format(err))
 
       # Retry
       retry_re = re.findall('\d+\/\d+\s+(\d+)', str(multi_thread))
       retry = float(retry_re[0])
-      print("Retry: {}".format(retry))
+      #print("Retry: {}".format(retry))
+      
+      
       #######################################################################################################
       # Cwnd
       cwnd_rtt = re.findall('\d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)', stdout)
@@ -199,16 +196,18 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
       cwnd_re = re.findall('-*\d+\s*', cwnd_rtt[0])
       #print(cwnd_rtt)
       cwnd = float(cwnd_re[0])
-      print("Cwnd: {}".format(cwnd))
+      #print("Cwnd: {}".format(cwnd))
       cwnd_unit_re = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
       #print("cwnd_unit: {}".format(cwnd_unit_re))
       cwnd_unit = cwnd_unit_re[0]
-      print("Cwnd Unit: {}".format(cwnd_unit))
+      #print("Cwnd Unit: {}".format(cwnd_unit))
       #print("RTT ALL: {}".format(cwnd_re))
       #rtt = float(cwnd_re[1])
-      print("RTT: {}".format(rtt))
+      #print("RTT: {}".format(rtt))
       rtt_unit = cwnd_unit_re[1]
-      print("RTT Unit: {}".format(cwnd_unit_re[1]))
+      #print("RTT Unit: {}".format(cwnd_unit_re[1]))
+      
+      
       #######################################################################################################
       # Netpwr
       netpwr_re = re.findall('\w+\/\d+\s+\w+\s+(\d+\.\d+))', stdout)
@@ -218,60 +217,59 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
           netpwr = netpwr + float(i)
       netpwr = netpwr / len(netpwr_re)
       netpwr = round(decimal.Decimal(netpwr), 2)
-      print("Netpwr: {}".format(netpwr))
+      #print("Netpwr: {}".format(netpwr))
   else:
       #Transfer 
       transfer_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+(\d+)', stdout)
       transfer = transfer_list[(len(transfer_list)-1)]
-      print("Transfer Total: {}".format(transfer))
+      #print("Transfer Total: {}".format(transfer))
       transfer_interval_data= []
       for x in range(len(transfer_list) -2 ):
         transfer_interval_data.append(transfer_list[x])
 
       
       transfer_unit = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s(\w+)', stdout)
-      print("transfer_unit: {}".format(transfer_unit.group(1)))
+      #print("transfer_unit: {}".format(transfer_unit.group(1)))
 
       #Bandwidth information 
       bandwidth_list = re.findall('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+(\d+)', stdout)
       bandwidth = bandwidth_list[(len(bandwidth_list)-1)]
-      print("Bandwidth: {}".format(bandwidth))
+      #print("Bandwidth: {}".format(bandwidth))
       
       bandwidth_units = re.search('\d+\.\d+-\d+\.\d+\s\w+\s+\d+\s\w+\s+\d+\s+(\w+/\w+)', stdout)
-      print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
+      #print("Bandwidth Units: {}".format(bandwidth_units.group(1)))
       #Write and Err
       write_err = re.findall('\s+(\d+\/\d+)', str(stdout))
       write_re = re.findall('\d+', str(write_err))
       write = float(write_re[0])
-      print("Write: {}".format(write))
+      #print("Write: {}".format(write))
       err = float(write_re[1])
-      print("Err: {}".format(err))
+      #print("Err: {}".format(err))
 
       # Retry
       retry_re = re.findall('\s+ \d+\/\d+\s+(\d+)', str(stdout))
       retry = float(retry_re[0])
-      print("Retry: {}".format(retry))
-
+      #print("Retry: {}".format(retry))
       # Cwnd
       cwnd_rtt = re.findall('\s+ \d+\/\d+\s+\d+\s+(-*\d+\w+\-*/\d+\s+\w+)',stdout)
       #print(cwnd_rtt)
       cwnd_re = re.findall('-*\d+\s*', cwnd_rtt[0])
       #print(cwnd_rtt)
       cwnd = float(cwnd_re[0])
-      print("Cwnd: {}".format(cwnd))
+      #print("Cwnd: {}".format(cwnd))
       cwnd_unit_re = re.findall('-*\d+\s*(\w+)', cwnd_rtt[0])
       cwnd_unit = cwnd_unit_re[0]
-      print("Cwnd Unit: {}".format(cwnd_unit))
+      #print("Cwnd Unit: {}".format(cwnd_unit))
       rtt = float(cwnd_re[1])
-      print("RTT: {}".format(rtt))
+      #print("RTT: {}".format(rtt))
       rtt_unit = cwnd_unit_re[1]
-      print("RTT Unit: {}".format(rtt_unit))
+      #print("RTT Unit: {}".format(rtt_unit))
 
 
       # Netpwr
       netpwr = re.findall('\s+ \d+\/\d+\s+\d+\s+-*\d+\w+\/\d+\s+\w+\s+(\d+\.\d+)', stdout)
       netpwr = float(netpwr[0])
-      print("Netpwr: {}".format(netpwr))
+      #print("Netpwr: {}".format(netpwr))
   print(stdout)
   # Example output from iperf that needs to be parsed
   # STDOUT: ------------------------------------------------------------
@@ -322,16 +320,16 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count, ip_t
     # which happens when threads start at different times.  The code
     # below will tend to overestimate a bit.
     thread_values = re.findall('\[\s+(\d+)\]', stdout)
-    print("Pre Thread Values: {}".format(thread_values))
+    #print("Pre Thread Values: {}".format(thread_values))
     list_of_threads = []
     
     for thread in thread_values:
-      print("list of threads: {}".format(list_of_threads))
+      #print("list of threads: {}".format(list_of_threads))
       if thread not in list_of_threads:
         list_of_threads.append(thread)
     
-    print("Post Thread Values: {}".format(thread_values))
-    print("list of threads: {}".format(list_of_threads))
+    #print("Post Thread Values: {}".format(thread_values))
+    #print("list of threads: {}".format(list_of_threads))
     if len(list_of_threads) != thread_count:
       raise ValueError('Only %s out of %s iperf threads reported a'
                        ' throughput value.' %
