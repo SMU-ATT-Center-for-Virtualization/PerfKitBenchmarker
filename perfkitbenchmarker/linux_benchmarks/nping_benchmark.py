@@ -22,30 +22,23 @@ import logging
 from perfkitbenchmarker import configs
 from absl import flags
 from perfkitbenchmarker import sample
-from perfkitbenchmarker import flag_util
+from perfkitbenchmarker import vm_util
 import re
-import time
 
-
-flag_util.DEFINE_integerlist('ping_interval_time_us',
-                             flag_util.IntegerList([1000]),
-                             'time between pings in microseconds',
-                              module_name=__name__)
-
-flags.DEFINE_boolean('ping_also_run_using_external_ip', False,
+flags.DEFINE_boolean('nping_also_run_using_external_ip', False,
                      'If set to True, the ping command will also be executed '
                      'using the external ips of the vms.')
 
-flag_util.DEFINE_integerlist('ping_count', flag_util.IntegerList([100]),
-                         'Number of packets to send with ping',
-                          module_name=__name__)
+flags.DEFINE_integer('nping_port', 3000,
+                     'port to use for nping')
 
 FLAGS = flags.FLAGS
 
+NPING_PORT=20000
 
-BENCHMARK_NAME = 'ping'
+BENCHMARK_NAME = 'nping'
 BENCHMARK_CONFIG = """
-ping:
+nping:
   description: Benchmarks ping latency over internal IP addresses
   vm_groups:
     vm_1:
@@ -54,7 +47,7 @@ ping:
       vm_spec: *default_single_core
 """
 
-METRICS = ('Min Latency', 'Average Latency', 'Max Latency', 'Latency Std Dev')
+METRICS = ('Max Latency', 'Min Latency', 'Average Latency')
 
 
 def GetConfig(user_config):
@@ -68,14 +61,21 @@ def Prepare(benchmark_spec):  # pylint: disable=unused-argument
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
   """
-  if len(benchmark_spec.vms) != 2:
+
+  vms = benchmark_spec.vms
+  if len(vms) != 2:
     raise ValueError(
-        'Ping benchmark requires exactly two machines, found {0}'
-        .format(len(benchmark_spec.vms)))
-  if FLAGS.ping_also_run_using_external_ip:
-    vms = benchmark_spec.vms
-    for vm in vms:
-      vm.AllowIcmp()
+        'nping benchmark requires exactly two machines, found {0}'
+        .format(len(vms)))
+  for vm in vms:
+    vm.Install('nmap')
+    vm.Install('iperf')
+    vm.AllowPort(NPING_PORT)
+    stdout, _ = vm.RemoteCommand(('nohup iperf --server --port %s &> /dev/null'
+                                  '& echo $!') % NPING_PORT)
+
+    #TODO store this in a better place once we have a better place
+    vm.iperf_server_pid = stdout.strip()
 
 
 def Run(benchmark_spec):
@@ -90,28 +90,21 @@ def Run(benchmark_spec):
   """
   vms = benchmark_spec.vms
   results = []
-
-  for ping_count in FLAGS.ping_count:
-    for interval_time in FLAGS.ping_interval_time_us:
-      for sending_vm, receiving_vm in vms, reversed(vms):
-        results = results + _RunPing(sending_vm,
-                                     receiving_vm,
-                                     receiving_vm.internal_ip,
-                                     'internal',
-                                     interval_time,
-                                     ping_count)
-      if FLAGS.ping_also_run_using_external_ip:
-        for sending_vm, receiving_vm in vms, reversed(vms):
-          results = results + _RunPing(sending_vm,
-                                       receiving_vm,
-                                       receiving_vm.ip_address,
-                                       'external',
-                                       interval_time,
-                                       ping_count)
+  # for sending_vm, receiving_vm in vms, reversed(vms):
+  #   results = results + _RunNPing(sending_vm,
+  #                                receiving_vm,
+  #                                receiving_vm.internal_ip,
+  #                                'internal')
+  # if FLAGS.nping_also_run_using_external_ip:
+  for sending_vm, receiving_vm in vms, reversed(vms):
+    results = results + _RunNPing(sending_vm,
+                                 receiving_vm,
+                                 receiving_vm.ip_address,
+                                 'external')
   return results
 
 
-def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, ping_count):
+def _RunNPing(sending_vm, receiving_vm, receiving_ip, ip_type):
   """Run ping using 'sending_vm' to connect to 'receiving_ip'.
 
   Args:
@@ -121,37 +114,23 @@ def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, pin
     ip_type: The type of 'receiving_ip' (either 'internal' or 'external')
   Returns:
     A list of samples, with one sample for each metric.
-  """
-  print("INTERVAL TIME: ")
-  print(interval_time)
+  """#
+  # if not sending_vm.IsReachable(receiving_vm):
+  #   logging.warn('%s is not reachable from %s', receiving_vm, sending_vm)
+  #   return []
 
-  interval_time_sec = float(interval_time) * 0.000001
+  logging.info('nping results (ip_type = %s):', ip_type)
+  ping_cmd = 'nping -c100 -p %s %s' % (NPING_PORT, receiving_ip)
 
-  logging.info("IP ADDRESS: %s", receiving_ip)
-  print(receiving_vm)
-
-  if not sending_vm.IsReachable(receiving_vm) and ip_type == 'internal':
-    logging.warn('%s is not reachable from %s', receiving_vm, sending_vm)
-    return []
-
-  logging.info('Ping results (ip_type = %s):', ip_type)
-  ping_cmd = 'sudo ping -c %d -i %f %s' % (ping_count, interval_time_sec, receiving_ip)
   stdout, _ = sending_vm.RemoteCommand(ping_cmd, should_log=True)
-  stats = re.findall('([0-9]*\\.[0-9]*)', stdout.splitlines()[-1])
-  if len(stats) > len(METRICS):
-    stats = stats[0:len(METRICS)]
+  stats = re.findall('([0-9]*\\.[0-9]*)', stdout.splitlines()[-3])
   assert len(stats) == len(METRICS), stats
   results = []
   metadata = {'ip_type': ip_type,
               'receiving_zone': receiving_vm.zone,
-              'sending_zone': sending_vm.zone,
-              'interval_time_us': interval_time,
-              'transaction_count': ping_count}
+              'sending_zone': sending_vm.zone}
   for i, metric in enumerate(METRICS):
     results.append(sample.Sample(metric, float(stats[i]), 'ms', metadata))
-
-  time.sleep(5)
-
   return results
 
 
