@@ -118,6 +118,10 @@ flags.DEFINE_integer('ssh_server_alive_count_max', 10,
                      'Value for ssh -o ServerAliveCountMax. Use with '
                      '--ssh_server_alive_interval to configure how long to '
                      'wait for unresponsive servers.')
+flags.DEFINE_string('ssh_key_file', None,
+                    'Keyfile to override pkb created ssh key')
+# flags.DEFINE_string('ssl_cert_file', None,
+#                     'cert file to override created cert file')
 
 
 class IpAddressSubset(object):
@@ -164,25 +168,39 @@ def GenTempDir():
 
 def SSHKeyGen():
   """Create PerfKitBenchmarker SSH keys in the tmp dir of the current run."""
-  if not os.path.isdir(GetTempDir()):
-    GenTempDir()
+  if FLAGS.ssh_key_file: #and FLAGS.ssl_cert_file:
+    globals().update(PRIVATE_KEYFILE = FLAGS.ssh_key_file)
+    globals().update(PUBLIC_KEYFILE = FLAGS.ssh_key_file + '.pub')
+    # globals().update(CERT_FILE = FLAGS.ssl_cert_file)
+    # print("PRIVATE KEYFILE: " + PRIVATE_KEYFILE)
+  else:
+    if not os.path.isdir(GetTempDir()):
+      GenTempDir()
 
-  if not os.path.isfile(GetPrivateKeyPath()):
-    create_cmd = ['ssh-keygen',
-                  '-t', 'rsa',
-                  '-N', '',
-                  '-m', 'PEM',
-                  '-q',
-                  '-f', PrependTempDir(PRIVATE_KEYFILE)]
-    IssueCommand(create_cmd)
+    if not os.path.isfile(GetPrivateKeyPath()):
+      create_cmd = ['ssh-keygen',
+                    '-t', 'rsa',
+                    '-N', '',
+                    '-m', 'PEM',
+                    '-q',
+                    '-f', PrependTempDir(PRIVATE_KEYFILE)]
+      IssueCommand(create_cmd)
 
 
 def GetPrivateKeyPath():
-  return PrependTempDir(PRIVATE_KEYFILE)
+  if FLAGS.ssh_key_file:
+    # print("PRIVATE KEYFILE: " + PRIVATE_KEYFILE)
+    return PRIVATE_KEYFILE
+  else:
+    return PrependTempDir(PRIVATE_KEYFILE)
 
 
 def GetPublicKeyPath():
-  return PrependTempDir(PUBLIC_KEYFILE)
+  if FLAGS.ssh_key_file:
+    # print("PUBLIC KEYFILE: " + PUBLIC_KEYFILE)
+    return PUBLIC_KEYFILE
+  else: 
+    return PrependTempDir(PUBLIC_KEYFILE)
 
 
 def GetSshOptions(ssh_key_filename, connect_timeout=None):

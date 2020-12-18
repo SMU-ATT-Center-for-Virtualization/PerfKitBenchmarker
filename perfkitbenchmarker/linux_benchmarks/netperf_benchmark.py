@@ -65,6 +65,8 @@ flags.DEFINE_integer('netperf_thinktime_array_size', 0,
 flags.DEFINE_integer('netperf_thinktime_run_length', 0,
                      'The number of contiguous numbers to sum at a time in the '
                      'thinktime array.')
+# flags.DEFINE_integer('netperf_wait_time', 0,
+#                      'time to wait between setup and test start')
 flags.DEFINE_integer('netperf_udp_stream_send_size_in_bytes', 1024,
                      'Send size to use for UDP_STREAM tests (netperf -m flag)',
                      lower_bound=1, upper_bound=65507)
@@ -147,7 +149,8 @@ def Prepare(benchmark_spec):
   """
   vms = benchmark_spec.vms
   vms = vms[:2]
-  vm_util.RunThreaded(PrepareNetperf, vms)
+  if not FLAGS.skip_prepare:
+    vm_util.RunThreaded(PrepareNetperf, vms)
 
   num_streams = max(FLAGS.netperf_num_streams)
 
@@ -167,10 +170,12 @@ def Prepare(benchmark_spec):
   vms[1].RemoteCommand(netserver_cmd)
 
   # Copy remote test script to client
-  path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
-  logging.info('Uploading %s to %s', path, vms[0])
-  vms[0].PushFile(path, REMOTE_SCRIPT)
-  vms[0].RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
+  if not FLAGS.skip_prepare:
+    path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
+    logging.info('Uploading %s to %s', path, vms[0])
+    vms[0].PushFile(path, REMOTE_SCRIPT)
+    vms[0].RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
+
 
 
 def _SetupHostFirewall(benchmark_spec):
@@ -375,8 +380,9 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   metadata = {'netperf_test_length': FLAGS.netperf_test_length,
               'sending_thread_count': num_streams,
               'max_iter': FLAGS.netperf_max_iter or 1}
+              #'netperf_wait_time': FLAGS.netperf_wait_time}
 
-  netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
+  netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} ' #-s {wait_time}'
                  '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
                  ' -- '
                  '-P ,{{data_port}} '
@@ -388,6 +394,7 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
                      output_selector=OUTPUT_SELECTOR,
                      confidence=confidence,
                      verbosity=verbosity)
+                     #wait_time=FLAGS.netperf_wait_time)
 
   if benchmark_name.upper() == 'UDP_STREAM':
     netperf_cmd += (' -R 1 -m {send_size} -M {send_size} '.format(

@@ -100,12 +100,16 @@ def Prepare(benchmark_spec):
         f'iperf benchmark requires exactly two machines, found {len(vms)}')
 
   for vm in vms:
-    vm.Install('iperf')
+    if not FLAGS.skip_prepare:
+      vm.Install('iperf')
+
+    # TODO maybe indent this block one
     if vm_util.ShouldRunOnExternalIpAddress():
       if TCP in FLAGS.iperf_benchmarks:
         vm.AllowPort(IPERF_PORT)
       if UDP in FLAGS.iperf_benchmarks:
         vm.AllowPort(IPERF_UDP_PORT)
+
     if TCP in FLAGS.iperf_benchmarks:
       stdout, _ = vm.RemoteCommand(f'nohup iperf --server --port {IPERF_PORT}'
                                    ' &> /dev/null & echo $!')

@@ -36,6 +36,7 @@ from perfkitbenchmarker import linux_virtual_machine
 from perfkitbenchmarker import os_types
 from perfkitbenchmarker import resource
 from perfkitbenchmarker import virtual_machine
+from perfkitbenchmarker import providers
 
 FLAGS = flags.FLAGS
 
@@ -43,7 +44,12 @@ flags.DEFINE_list('static_vm_tags', None,
                   'The tags of static VMs for PKB to run with. Even if other '
                   'VMs are specified in a config, if they aren\'t in this list '
                   'they will be skipped during VM creation.')
-
+flags.DEFINE_string('static_cloud_metadata', 'Static',
+                     'Instead of using Static as the cloud type in metadata, '
+                     'it will use the provided value')
+flags.DEFINE_string('static_network_tier_metadata', None,
+                     'Instead of using Static as the cloud type in metadata, '
+                     'it will use the provided value')
 
 class StaticVmSpec(virtual_machine.BaseVmSpec):
   """Object containing all info needed to create a Static VM."""
@@ -285,6 +291,47 @@ class StaticVirtualMachine(virtual_machine.BaseVirtualMachine):
         return vm
       else:
         return None
+
+  def GetResourceMetadata(self):
+    """Returns a dict containing VM metadata.
+    Returns:
+      dict mapping string property key to value.
+    """
+    if not self.created:
+      return {}
+    result = self.metadata.copy()
+    result.update({
+        'image': self.image,
+        'zone': self.zone,
+        'cloud': FLAGS.static_cloud_metadata,
+    })
+    if FLAGS.static_network_tier_metadata is not None:
+      result['gce_network_tier'] = FLAGS.static_network_tier_metadata
+    if self.cidr is not None:
+      result['cidr'] = self.cidr
+    if self.machine_type is not None:
+      result['machine_type'] = self.machine_type
+    if self.use_dedicated_host is not None:
+      result['dedicated_host'] = self.use_dedicated_host
+    if self.tcp_congestion_control is not None:
+      result['tcp_congestion_control'] = self.tcp_congestion_control
+    if self.numa_node_count is not None:
+      result['numa_node_count'] = self.numa_node_count
+    if self.num_disable_cpus is not None:
+      result['num_disable_cpus'] = self.num_disable_cpus
+    # Hack: Silently fail if we have no num_cpus or OS_TYPE attribute.
+    # This property is defined in BaseOsMixin and should always
+    # be available during regular PKB usage because virtual machines
+    # always have a mixin. However, in testing virtual machine objects
+    # are often instantiated without a mixin, so the line below was
+    # failing because the attribute didn't exist.
+    if getattr(self, 'num_cpus', None):
+      result['num_cpus'] = self.num_cpus
+      if self.NumCpusForBenchmark() != self.num_cpus:
+        result['num_benchmark_cpus'] = self.NumCpusForBenchmark()
+    if getattr(self, 'OS_TYPE', None):
+      result['os_type'] = self.OS_TYPE
+    return result
 
 
 def GetStaticVmClass(os_type):
