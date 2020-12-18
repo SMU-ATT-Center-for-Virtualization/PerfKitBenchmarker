@@ -13,11 +13,9 @@
 # limitations under the License.
 
 """Runs plain netperf in a few modes.
-
 docs:
 https://hewlettpackard.github.io/netperf/doc/netperf.html
 manpage: http://manpages.ubuntu.com/manpages/maverick/man1/netperf.1.html
-
 Runs TCP_RR, TCP_CRR, and TCP_STREAM benchmarks from netperf across two
 machines.
 """
@@ -65,8 +63,6 @@ flags.DEFINE_integer('netperf_thinktime_array_size', 0,
 flags.DEFINE_integer('netperf_thinktime_run_length', 0,
                      'The number of contiguous numbers to sum at a time in the '
                      'thinktime array.')
-# flags.DEFINE_integer('netperf_wait_time', 0,
-#                      'time to wait between setup and test start')
 flags.DEFINE_integer('netperf_udp_stream_send_size_in_bytes', 1024,
                      'Send size to use for UDP_STREAM tests (netperf -m flag)',
                      lower_bound=1, upper_bound=65507)
@@ -142,15 +138,13 @@ def PrepareNetperf(vm):
 
 def Prepare(benchmark_spec):
   """Install netperf on the target vm.
-
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
   """
   vms = benchmark_spec.vms
   vms = vms[:2]
-  if not FLAGS.skip_prepare:
-    vm_util.RunThreaded(PrepareNetperf, vms)
+  vm_util.RunThreaded(PrepareNetperf, vms)
 
   num_streams = max(FLAGS.netperf_num_streams)
 
@@ -170,17 +164,14 @@ def Prepare(benchmark_spec):
   vms[1].RemoteCommand(netserver_cmd)
 
   # Copy remote test script to client
-  if not FLAGS.skip_prepare:
-    path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
-    logging.info('Uploading %s to %s', path, vms[0])
-    vms[0].PushFile(path, REMOTE_SCRIPT)
-    vms[0].RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
-
+  path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
+  logging.info('Uploading %s to %s', path, vms[0])
+  vms[0].PushFile(path, REMOTE_SCRIPT)
+  vms[0].RemoteCommand('sudo chmod 777 %s' % REMOTE_SCRIPT)
 
 
 def _SetupHostFirewall(benchmark_spec):
   """Set up host firewall to allow incoming traffic.
-
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
@@ -203,11 +194,9 @@ def _SetupHostFirewall(benchmark_spec):
 
 def _HistogramStatsCalculator(histogram, percentiles=PERCENTILES):
   """Computes values at percentiles in a distribution as well as stddev.
-
   Args:
     histogram: A dict mapping values to the number of samples with that value.
     percentiles: An array of percentiles to calculate.
-
   Returns:
     A dict mapping stat names to their values.
   """
@@ -246,14 +235,12 @@ def _HistogramStatsCalculator(histogram, percentiles=PERCENTILES):
 def ParseNetperfOutput(stdout, metadata, benchmark_name,
                        enable_latency_histograms):
   """Parses the stdout of a single netperf process.
-
   Args:
     stdout: the stdout of the netperf process
     metadata: metadata for any sample.Sample objects we create
     benchmark_name: the name of the netperf benchmark
     enable_latency_histograms: bool indicating if latency histograms are
         included in stdout
-
   Returns:
     A tuple containing (throughput_sample, latency_samples, latency_histogram)
   """
@@ -349,13 +336,11 @@ def ParseNetperfOutput(stdout, metadata, benchmark_name,
 
 def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   """Spawns netperf on a remote VM, parses results.
-
   Args:
     vm: The VM that the netperf TCP_RR benchmark will be run upon.
     benchmark_name: The netperf benchmark to run, see the documentation.
     server_ip: A machine that is running netserver.
     num_streams: The number of netperf client threads to run.
-
   Returns:
     A sample.Sample object with the result.
   """
@@ -380,9 +365,8 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   metadata = {'netperf_test_length': FLAGS.netperf_test_length,
               'sending_thread_count': num_streams,
               'max_iter': FLAGS.netperf_max_iter or 1}
-              #'netperf_wait_time': FLAGS.netperf_wait_time}
 
-  netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} ' #-s {wait_time}'
+  netperf_cmd = ('{netperf_path} -p {{command_port}} -j {verbosity} '
                  '-t {benchmark_name} -H {server_ip} -l {length} {confidence}'
                  ' -- '
                  '-P ,{{data_port}} '
@@ -394,7 +378,6 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
                      output_selector=OUTPUT_SELECTOR,
                      confidence=confidence,
                      verbosity=verbosity)
-                     #wait_time=FLAGS.netperf_wait_time)
 
   if benchmark_name.upper() == 'UDP_STREAM':
     netperf_cmd += (' -R 1 -m {send_size} -M {send_size} '.format(
@@ -491,11 +474,9 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
 
 def Run(benchmark_spec):
   """Run netperf TCP_RR on the target vm.
-
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
-
   Returns:
     A list of sample.Sample objects.
   """
@@ -538,7 +519,6 @@ def Run(benchmark_spec):
 
 def Cleanup(benchmark_spec):
   """Cleanup netperf on the target vm (by uninstalling).
-
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
