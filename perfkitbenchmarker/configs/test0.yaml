@@ -1,0 +1,7 @@
+test_network:
+  flags:
+    test_network_duration: 300
+    skip_firewall_rules: True
+    zones: us-east4-c
+    extra_zones: northamerica-northeast1-a
+    machine_type: n2-standard-16

@@ -928,6 +928,8 @@ def DoCleanupPhase(spec, timer):
     timer: An IntervalTimer that measures the start and stop times of the
       benchmark module's Cleanup function.
   """
+  if FLAGS.skip_prepare:
+    return
   if FLAGS.before_cleanup_pause:
     six.moves.input('Hit enter to begin Cleanup.')
   logging.info('Cleaning up benchmark %s', spec.name)
@@ -953,6 +955,8 @@ def DoTeardownPhase(spec, collector, timer):
     timer: An IntervalTimer that measures the start and stop times of
       resource teardown.
   """
+  if any([vm.is_static for vm in spec.vms]) or FLAGS.skip_teardown:
+    return
   logging.info('Tearing down resources for benchmark %s', spec.name)
   events.before_phase.send(stages.TEARDOWN, benchmark_spec=spec)
   # Add delete time metrics after metadeta collected
@@ -1580,6 +1584,12 @@ def RunBenchmarks():
       spec_sample_tuples = background_tasks.RunParallelProcesses(
           tasks, FLAGS.run_processes, FLAGS.run_processes_delay)
     benchmark_spec_lists, sample_lists = list(zip(*spec_sample_tuples))
+    # benchmark_specs, sample_lists = zip(*spec_sample_tuples)
+
+    for sample_list in sample_lists:
+      for sample in sample_list:
+        if 'benchmark_name' in sample['metadata']:
+          sample['test'] = sample['metadata']['benchmark_name']
     for sample_list in sample_lists:
       collector.samples.extend(sample_list)
 

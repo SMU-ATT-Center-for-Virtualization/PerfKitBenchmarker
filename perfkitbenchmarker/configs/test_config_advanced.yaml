@@ -1,0 +1,38 @@
+netperf_multi_endpoint:
+  description: netperf egress to multiple endpoints
+  vm_groups:
+    servers:
+      os_type: ubuntu2004
+      vm_spec:
+        GCP:
+          machine_type: n2-standard-32
+          zone: us-east1-b
+          image: ubuntu-20-gvnic
+          
+      vm_count: 4
+    client:
+      os_type: ubuntu2004
+      vm_spec:
+        GCP:
+          machine_type: n2-standard-80
+          zone: us-east1-b
+          image: ubuntu-20-gvnic
+  flags:
+    cloud: GCP
+    iperf_runtime_in_seconds: 20
+    # netperf_histogram_buckets: 1000
+    netperf_benchmarks: TCP_STREAM
+    #netperf_rr_test_length: 100000
+    netperf_test_length: 30
+    netperf_num_streams: 16,50
+    # iperf_sending_thread_count: 32
+    ip_addresses: BOTH
+    gce_egress_bandwidth_tier: TIER_1
+    tcp_max_receive_buffer: 500000000
+    tcp_max_send_buffer: 500000000
+    gce_network_name: pkb-scheduler
+    gce_remote_access_firewall_rule: allow-ssh
+    skip_firewall_rules: True
+    gce_nic_type: GVNIC
+    image: ubuntu-20-gvnic
+    image_project: smu-benchmarking

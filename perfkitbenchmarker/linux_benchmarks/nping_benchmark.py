@@ -23,18 +23,34 @@ from perfkitbenchmarker import configs
 from absl import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
+from perfkitbenchmarker import flag_util
 import re
 
 flags.DEFINE_boolean('nping_also_run_using_external_ip', False,
                      'If set to True, the ping command will also be executed '
                      'using the external ips of the vms.')
 
-flags.DEFINE_integer('nping_port', 3000,
+flags.DEFINE_integer('nping_port', 40000,
                      'port to use for nping')
+
+flag_util.DEFINE_integerlist('nping_count', flag_util.IntegerList([100]),
+                         'Number of packets to send with ping',
+                          module_name=__name__)
+
+flags.DEFINE_boolean('nping_service_already_exits', False,
+                     'Set to true if you want to probe a port with an existing service')
+
+flags.DEFINE_boolean('nping_pre_run', False,
+                     'Run a throwaway run before the measured run.')
+
+flag_util.DEFINE_integerlist('nping_interval_time_ms',
+                             flag_util.IntegerList([10]),
+                             'time between nping probes in milliseconds',
+                              module_name=__name__)
+
 
 FLAGS = flags.FLAGS
 
-NPING_PORT=20000
 
 BENCHMARK_NAME = 'nping'
 BENCHMARK_CONFIG = """
@@ -69,13 +85,16 @@ def Prepare(benchmark_spec):  # pylint: disable=unused-argument
         .format(len(vms)))
   for vm in vms:
     vm.Install('nmap')
-    vm.Install('iperf')
-    vm.AllowPort(NPING_PORT)
-    stdout, _ = vm.RemoteCommand(('nohup iperf --server --port %s &> /dev/null'
-                                  '& echo $!') % NPING_PORT)
+    vm.AllowPort(FLAGS.nping_port)
 
-    #TODO store this in a better place once we have a better place
-    vm.iperf_server_pid = stdout.strip()
+    if not FLAGS.nping_service_already_exits:
+      vm.Install('iperf')
+      stdout, _ = vm.RemoteCommand(f'nohup iperf --server --port {FLAGS.nping_port}'
+                                     ' &> /dev/null & echo $!')
+      vm.iperf_tcp_server_pid = stdout.strip()
+
+      #TODO store this in a better place once we have a better place
+      vm.iperf_server_pid = stdout.strip()
 
 
 def Run(benchmark_spec):
@@ -90,21 +109,34 @@ def Run(benchmark_spec):
   """
   vms = benchmark_spec.vms
   results = []
-  # for sending_vm, receiving_vm in vms, reversed(vms):
-  #   results = results + _RunNPing(sending_vm,
-  #                                receiving_vm,
-  #                                receiving_vm.internal_ip,
-  #                                'internal')
-  # if FLAGS.nping_also_run_using_external_ip:
-  for sending_vm, receiving_vm in vms, reversed(vms):
-    results = results + _RunNPing(sending_vm,
-                                 receiving_vm,
-                                 receiving_vm.ip_address,
-                                 'external')
+
+  for nping_count in FLAGS.nping_count:
+    for interval_time in FLAGS.nping_interval_time_ms:
+      for sending_vm, receiving_vm in vms, reversed(vms):
+        if vm_util.ShouldRunOnExternalIpAddress():
+          ip_type = vm_util.IpAddressMetadata.EXTERNAL
+          results = results + _RunNPing(sending_vm,
+                                     receiving_vm,
+                                     receiving_vm.ip_address,
+                                     'external',
+                                     nping_count,
+                                     interval_time)
+
+        if vm_util.ShouldRunOnInternalIpAddress(sending_vm, receiving_vm):
+          ip_type = vm_util.IpAddressMetadata.INTERNAL
+          results = results + _RunNPing(sending_vm,
+                                     receiving_vm,
+                                     receiving_vm.ip_address,
+                                     ip_type,
+                                     nping_count,
+                                     interval_time)
+
+
+
   return results
 
 
-def _RunNPing(sending_vm, receiving_vm, receiving_ip, ip_type):
+def _RunNPing(sending_vm, receiving_vm, receiving_ip, ip_type, nping_count, interval_time):
   """Run ping using 'sending_vm' to connect to 'receiving_ip'.
 
   Args:
@@ -118,9 +150,12 @@ def _RunNPing(sending_vm, receiving_vm, receiving_ip, ip_type):
   # if not sending_vm.IsReachable(receiving_vm):
   #   logging.warn('%s is not reachable from %s', receiving_vm, sending_vm)
   #   return []
+  if FLAGS.nping_pre_run:
+    ping_cmd = f'nping --delay {interval_time}ms -c10 -p {FLAGS.nping_port} {receiving_ip}'
+    sending_vm.RemoteCommand(ping_cmd, should_log=True)
 
   logging.info('nping results (ip_type = %s):', ip_type)
-  ping_cmd = 'nping -c100 -p %s %s' % (NPING_PORT, receiving_ip)
+  ping_cmd = f'nping --delay {interval_time}ms -c {nping_count} -p {FLAGS.nping_port} {receiving_ip}'
 
   stdout, _ = sending_vm.RemoteCommand(ping_cmd, should_log=True)
   stats = re.findall('([0-9]*\\.[0-9]*)', stdout.splitlines()[-3])
@@ -128,17 +163,23 @@ def _RunNPing(sending_vm, receiving_vm, receiving_ip, ip_type):
   results = []
   metadata = {'ip_type': ip_type,
               'receiving_zone': receiving_vm.zone,
-              'sending_zone': sending_vm.zone}
+              'sending_zone': sending_vm.zone,
+              'interval_time_ms': interval_time,
+              'transaction_count': nping_count}
   for i, metric in enumerate(METRICS):
     results.append(sample.Sample(metric, float(stats[i]), 'ms', metadata))
   return results
 
 
-def Cleanup(benchmark_spec):  # pylint: disable=unused-argument
+def Cleanup(benchmark_spec):
   """Cleanup ping on the target vm (by uninstalling).
 
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
   """
-  pass
+
+  if not FLAGS.nping_service_already_exits:
+    for vm in benchmark_spec.vms:
+      vm.RemoteCommand(
+        f'kill -9 {vm.iperf_tcp_server_pid}', ignore_failure=True)

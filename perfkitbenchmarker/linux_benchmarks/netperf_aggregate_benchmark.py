@@ -182,7 +182,8 @@ def RunNetperfAggregate(vm, server_ips):
       ignore_failure=True,
       should_log=True,
       login_shell=False,
-      timeout=1800)
+      timeout=6000)
+
 
   interval_naming = collections.namedtuple('IntervalNaming',
                                            'output_file parse_name')

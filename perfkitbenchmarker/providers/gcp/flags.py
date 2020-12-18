@@ -200,3 +200,4 @@ flags.register_multi_flags_validator(
     ['gce_preemptible_vms', 'gcp_preemptible_status_bucket'],
     _ValidatePreemptFlags, 'When gce_preemptible_vms is specified, '
     'gcp_preemptible_status_bucket must be specified.')
+

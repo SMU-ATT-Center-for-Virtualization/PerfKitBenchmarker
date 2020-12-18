@@ -24,9 +24,26 @@ omb:
       vm_spec: *default_single_core
 """
 
-_BENCHMARKS_ARG = flags.DEFINE_multi_enum(
-    'omb_benchmarks', None, sorted(omb.BENCHMARKS),
-    'OSU micro-bencmarks to run.  Default is to run all')
+
+ALL_BENCHMARKS = [
+    'acc_latency', 'allgather', 'allgatherv', 'allreduce', 'alltoall', 'alltoallv', 'barrier', 
+    'bcast', 'bibw', 'bw', 'cas_latency', 'fop_latency', 'gather', 'gatherv', 'get_acc_latency', 
+    'get_bw', 'get_latency', 'iallgather', 'iallgatherv', 'iallreduce', 'ialltoall', 'ialltoallv', 
+    'ialltoallw', 'ibarrier', 'ibcast', 'igather', 'igatherv', 'ireduce', 'iscatter', 'iscatterv', 
+    'latency', 'latency_mp', 'latency_mt', 'mbw_mr', 'multi_lat', 'put_bibw', 'put_bw', 'put_latency', 
+    'reduce', 'reduce_scatter', 'scatter', 'scatterv']
+
+_BENCHMARKS_ARG = flags.DEFINE_list('omb_benchmarks', ALL_BENCHMARKS,
+                  'The netperf benchmark(s) to run.')
+
+flags.register_validator(
+    'omb_benchmarks',
+    lambda benchmarks: benchmarks and set(benchmarks).issubset(ALL_BENCHMARKS))
+
+
+# _BENCHMARKS_ARG = flags.DEFINE_multi_enum(
+#     'omb_benchmarks', None, sorted(omb.BENCHMARKS),
+    # 'OSU micro-bencmarks to run.  Default is to run all')
 _RUN_LONG_LATENCY = flags.DEFINE_bool(
     'omb_run_long_latency', False,
     'Whether to run the very long latency test get_acc_latency and latency_mt.')

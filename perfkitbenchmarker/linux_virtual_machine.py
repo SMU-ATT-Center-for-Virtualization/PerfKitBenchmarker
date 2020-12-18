@@ -171,6 +171,16 @@ flags.DEFINE_integer(
     'Sets the sysctl value net.core.wmem_max. This sets the max OS '
     'send buffer size in bytes for all types of connections')
 
+flags.DEFINE_integer(
+    'rmem_default', None,
+    'Sets the sysctl value net.core.rmem_default. This sets the default OS '
+    'receive buffer size in bytes for all types of connections')
+
+flags.DEFINE_integer(
+    'wmem_default', None,
+    'Sets the sysctl value net.core.wmem_default. This sets the default OS '
+    'send buffer size in bytes for all types of connections')
+
 flags.DEFINE_boolean('gce_hpc_tools', False,
                      'Whether to apply the hpc-tools environment script.')
 
@@ -180,6 +190,9 @@ flags.DEFINE_boolean('disable_smt', False,
 
 _DISABLE_YUM_CRON = flags.DEFINE_boolean(
     'disable_yum_cron', True, 'Whether to disable the cron-run yum service.')
+
+flags.DEFINE_bool(
+    'skip_sysctl', False, 'Whether to skip application of sysctls')
 
 RETRYABLE_SSH_RETCODE = 255
 
@@ -526,7 +539,8 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       # ShouldDownloadPreprovisionedData sets up object storage CLIs.
       self.SetupPackageManager()
     self.SetFiles()
-    self.DoSysctls()
+    if not FLAGS.skip_sysctl:
+      self.DoSysctls()
     self._DoAppendKernelCommandLine()
     self.DoConfigureNetworkForBBR()
     self.DoConfigureTCPWindow()
@@ -693,7 +707,9 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     if all(x is None for x in [FLAGS.tcp_max_receive_buffer,
                                FLAGS.tcp_max_send_buffer,
                                FLAGS.rmem_max,
-                               FLAGS.wmem_max]):
+                               FLAGS.wmem_max,
+                               FLAGS.rmem_default,
+                               FLAGS.wmem_default]):
       return
 
     # Get current values from VM
@@ -705,26 +721,45 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     rmem_max = int(stdout)
     stdout, _ = self.RemoteCommand('cat /proc/sys/net/core/wmem_max')
     wmem_max = int(stdout)
+    stdout, _ = self.RemoteCommand('cat /proc/sys/net/core/rmem_default')
+    rmem_default = int(stdout)
+    stdout, _ = self.RemoteCommand('cat /proc/sys/net/core/wmem_default')
+    wmem_default = int(stdout)
+
 
     # third number is max receive/send
-    max_receive = rmem_values[2]
-    max_send = wmem_values[2]
+    max_receive = int(rmem_values[2])
+    max_send = int(wmem_values[2])
+
+    value_changed = False
 
     # if flags are set, override current values from vm
-    if FLAGS.tcp_max_receive_buffer:
+    if FLAGS.tcp_max_receive_buffer and max_receive != FLAGS.tcp_max_receive_buffer:
       max_receive = FLAGS.tcp_max_receive_buffer
-    if FLAGS.tcp_max_send_buffer:
+      value_changed = True
+    if FLAGS.tcp_max_send_buffer and max_send != FLAGS.tcp_max_send_buffer:
       max_send = FLAGS.tcp_max_send_buffer
-    if FLAGS.rmem_max:
+      value_changed = True
+    if FLAGS.rmem_max and rmem_max != FLAGS.rmem_max:
       rmem_max = FLAGS.rmem_max
-    if FLAGS.wmem_max:
+      value_changed = True
+    if FLAGS.wmem_max and wmem_max != FLAGS.wmem_max:
       wmem_max = FLAGS.wmem_max
+      value_changed = True
+    if FLAGS.rmem_default and rmem_default != FLAGS.rmem_default:
+      rmem_default = FLAGS.rmem_default
+      value_changed = True
+    if FLAGS.wmem_default and wmem_default != FLAGS.wmem_default:
+      wmem_default = FLAGS.wmem_default
+      value_changed = True
 
     # Add values to metadata
     self.os_metadata['tcp_max_receive_buffer'] = max_receive
     self.os_metadata['tcp_max_send_buffer'] = max_send
     self.os_metadata['rmem_max'] = rmem_max
     self.os_metadata['wmem_max'] = wmem_max
+    self.os_metadata['rmem_default'] = rmem_default
+    self.os_metadata['wmem_default'] = wmem_default
 
     rmem_string = '{} {} {}'.format(rmem_values[0],
                                     rmem_values[1],
@@ -732,17 +767,21 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     wmem_string = '{} {} {}'.format(wmem_values[0],
                                     wmem_values[1],
                                     max_send)
-
-    self._ApplySysctlPersistent({
-        'net.ipv4.tcp_rmem': rmem_string,
-        'net.ipv4.tcp_wmem': wmem_string,
-        'net.core.rmem_max': rmem_max,
-        'net.core.wmem_max': wmem_max
-    })
+    logging.info("VALUE CHANGED APPLY SYSCTL")
+    if value_changed:
+      self._ApplySysctlPersistent({
+          'net.ipv4.tcp_rmem': rmem_string,
+          'net.ipv4.tcp_wmem': wmem_string,
+          'net.core.rmem_max': rmem_max,
+          'net.core.wmem_max': wmem_max,
+          'net.core.rmem_default': rmem_default,
+          'net.core.wmem_default': wmem_default
+      })
 
   def _RebootIfNecessary(self):
     """Will reboot the VM if self._needs_reboot has been set."""
     if self._needs_reboot:
+      logging.info("REBOOT NECESSARY")
       self.Reboot()
       self._needs_reboot = False
 
@@ -1505,6 +1544,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     if FLAGS.append_kernel_command_line:
       self.AppendKernelCommandLine(
           FLAGS.append_kernel_command_line, reboot=False)
+      logging.info("APPEND KERNEL COMMAND LINE. NEEDS REBOOT")
       self._needs_reboot = True
 
   @abc.abstractmethod
@@ -2816,3 +2856,4 @@ class JujuMixin(BaseDebianMixin):
 class BaseLinuxVirtualMachine(BaseLinuxMixin,
                               virtual_machine.BaseVirtualMachine):
   """Linux VM for use with pytyping."""
+

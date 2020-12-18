@@ -28,56 +28,15 @@ from perfkitbenchmarker import flag_util
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
 
-flag_util.DEFINE_integerlist(
-    'iperf_sending_thread_count',
-    flag_util.IntegerList([1]), 'server for sending traffic. Iperf'
-    'will run once for each value in the list',
-    module_name=__name__)
-flags.DEFINE_integer(
-    'iperf_runtime_in_seconds',
-    60,
-    'Number of seconds to run iperf.',
-    lower_bound=1)
-flags.DEFINE_integer(
-    'iperf_timeout',
-    None, 'Number of seconds to wait in '
-    'addition to iperf runtime before '
-    'killing iperf client command.',
-    lower_bound=1)
-flags.DEFINE_float(
-    'iperf_udp_per_stream_bandwidth', None,
-    'In Mbits. Iperf will attempt to send at this bandwidth for UDP tests. '
-    'If using multiple streams, each stream will '
-    'attempt to send at this bandwidth')
-flags.DEFINE_float(
-    'iperf_tcp_per_stream_bandwidth', None,
-    'In Mbits. Iperf will attempt to send at this bandwidth for TCP tests. '
-    'If using multiple streams, each stream will '
-    'attempt to send at this bandwidth')
-flags.DEFINE_float(
-    'iperf_interval', None,
-    'This will set how long the intervals of the scan will be in seconds.'
-    'currently only for TCP tests')
-flags.DEFINE_integer(
-    'iperf_sleep_time', 5,
-    'number of seconds to sleep after each iperf test')
-
 TCP = 'TCP'
 UDP = 'UDP'
 IPERF_BENCHMARKS = [TCP, UDP]
 
-flags.DEFINE_list('iperf_benchmarks', [TCP], 'Run TCP, UDP or both')
-
-flags.register_validator(
-    'iperf_benchmarks',
-    lambda benchmarks: benchmarks and set(benchmarks).issubset(IPERF_BENCHMARKS)
-    )
-
 FLAGS = flags.FLAGS
 
-BENCHMARK_NAME = 'iperf'
+BENCHMARK_NAME = 'iperf_autostop'
 BENCHMARK_CONFIG = """
-iperf:
+iperf_autostop:
   description: Run iperf
   vm_groups:
     vm_1:
@@ -110,6 +69,10 @@ def Prepare(benchmark_spec):
   for vm in vms:
     if not FLAGS.skip_prepare:
       vm.Install('iperf')
+      vm.Install('pip3')
+      logging.info("INSTALL iperf early stopping github repo")
+      vm.RemoteCommand(f'git clone https://github.com/SMU-ATT-Center-for-Virtualization/iperf_early_stopping.git')
+      vm.RemoteCommand('cd iperf_early_stopping && pip install -r requirements.txt')
 
     # TODO maybe indent this block one
     if vm_util.ShouldRunOnExternalIpAddress():
@@ -192,10 +155,35 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count,
     # the additional time on top of the iperf runtime is to account for the
     # time it takes for the iperf process to start and exit
     timeout_buffer = FLAGS.iperf_timeout or 30 + thread_count
+
+
+    iperf_autostop_command = (
+        f"cd iperf_early_stopping && python3 autostop.py -c '{iperf_cmd}' "
+         "-o iperf_output.txt -s 5 -m 20")
+
     stdout, _ = sending_vm.RemoteCommand(
-        iperf_cmd,
+        iperf_autostop_command,
         should_log=True,
         timeout=FLAGS.iperf_runtime_in_seconds + timeout_buffer)
+
+
+    re_match = re.search((
+        r'Final mean:\s(?P<mean>\d+\.\d+)\s+Final\sconfidence\sinterval:'
+        r'\s\((?P<interval_lower>\d+\.\d+),\s(?P<interval_upper>\d+\.\d+)'
+        r'\)\s+Final\swidth:\s\+\-(?P<interval_width>\d+\.\d+)\%\s+Number\s'
+        r'of\sSamples:\s(?P<num_samples>\d+)'), stdout)
+
+    ci_mean = float(re_match.group('mean'))
+    ci_lower = float(re_match.group('interval_lower'))
+    ci_upper = float(re_match.group('interval_upper'))
+    ci_width = float(re_match.group('interval_width'))
+    ci_samples = int(re_match.group('num_samples'))
+
+    print("AUTOSTOP STDOUT")
+    print(stdout)
+
+
+    stdout, _ = sending_vm.RemoteCommand('cd iperf_early_stopping && cat iperf_output.txt')
 
     window_size_match = re.search(
         r'TCP window size: (?P<size>\d+\.?\d+) (?P<units>\S+)', stdout)
@@ -299,6 +287,11 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count,
             'interval_cwnd_list': cwnd_sum_list, ################
             'interval_netpwr_list': netpwr_sum_list, ############
             'interval_retry_list': retry_sum_list,
+            'ci_mean': ci_mean,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            'ci_percentage_width_plus_minus': ci_width,
+            'ci_iterations_needed': ci_samples
         }
         metadata_tmp = metadata.copy()
         metadata_tmp.update(tcp_metadata)
@@ -353,7 +346,12 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count,
             'interval_rtt_list': rtt_sum_list,  #################
             'interval_cwnd_list': cwnd_sum_list, ################
             'interval_retry_list': retry_sum_list, ################
-            'interval_netpwr_list': netpwr_sum_list, ############
+            'interval_netpwr_list': netpwr_sum_list, ############,
+            'ci_mean': ci_mean,
+            'ci_lower': ci_lower,
+            'ci_upper': ci_upper,
+            'ci_percentage_width_plus_minus': ci_width,
+            'ci_iterations_needed': ci_samples
         }
         
         metadata_tmp = metadata.copy()

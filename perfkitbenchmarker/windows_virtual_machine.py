@@ -42,6 +42,10 @@ flags.DEFINE_bool(
     'set_cpu_priority_high', False,
     'Allows executables to be set to High (up from Normal) CPU priority '
     'through the SetProcessPriorityToHigh function.')
+flags.DEFINE_bool(
+    'skip_package_cleanup', False,
+    'skips cleanup')
+
 
 # Windows disk letter starts from C, use a larger disk letter for attached disk
 # to avoid conflict. On Azure, D is reserved for DvD drive.
@@ -456,7 +460,7 @@ class BaseWindowsMixin(virtual_machine.BaseOsMixin):
     self.home_dir = stdout.strip()
     stdout, _ = self.RemoteCommand('echo $env:SystemDrive')
     self.system_drive = stdout.strip()
-    self.RemoteCommand('mkdir %s' % self.temp_dir)
+    self.RemoteCommand('mkdir %s' % self.temp_dir, ignore_failure=True)
     self.DisableGuestFirewall()
 
   def _Reboot(self):
@@ -502,8 +506,11 @@ class BaseWindowsMixin(virtual_machine.BaseOsMixin):
     Deletes the Perfkit Benchmarker temp directory on the VM
     and uninstalls all PerfKit packages.
     """
+    if FLAGS.skip_package_cleanup:
+      return
     for package_name in self._installed_packages:
       self.Uninstall(package_name)
+
     self.RemoteCommand('rm -recurse -force %s' % self.temp_dir)
     self.EnableGuestFirewall()
 

@@ -23,6 +23,7 @@ from perfkitbenchmarker import configs
 from absl import flags
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import flag_util
+from perfkitbenchmarker import vm_util
 import re
 import time
 
@@ -146,7 +147,7 @@ def _RunPing(sending_vm, receiving_vm, receiving_ip, ip_type, interval_time, pin
   for i, metric in enumerate(METRICS):
     results.append(sample.Sample(metric, float(stats[i]), 'ms', metadata))
 
-  time.sleep(5)
+  time.sleep(1)
 
   return results
 

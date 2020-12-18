@@ -28,6 +28,7 @@ from perfkitbenchmarker.linux_benchmarks import iperf_benchmark
 from perfkitbenchmarker.linux_benchmarks import ping_benchmark
 from perfkitbenchmarker.linux_benchmarks import nping_benchmark
 import re
+import time
 
 
 # flags.DEFINE_boolean('ping_also_run_using_external_ip', False,
@@ -132,6 +133,8 @@ def Run(benchmark_spec):
         # if FLAGS.gcp_network_tier:
         #   sample.metadata['network_tier'] = FLAGS.gcp_network_tier
 
+  time.sleep(5)
+
   iperf_results = iperf_benchmark.Run(benchmark_spec)
   for sample in iperf_results:
     print("SAMPLE")
@@ -143,6 +146,7 @@ def Run(benchmark_spec):
 
   #iperf_benchmark.Cleanup(benchmark_spec)
 
+  time.sleep(5)
   #ping_results = ping_benchmark.Run(benchmark_spec)
   #iperf_results = iperf_benchmark.Run(benchmark_spec)
   netperf_results = netperf_benchmark.Run(benchmark_spec)
@@ -181,6 +185,8 @@ def Cleanup(benchmark_spec):  # pylint: disable=unused-argument
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
   """
+  if FLAGS.skip_prepare:
+    return
 
   if FLAGS.use_nping:
     nping_benchmark.Cleanup(benchmark_spec)

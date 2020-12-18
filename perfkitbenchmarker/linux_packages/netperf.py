@@ -120,7 +120,6 @@ def AptInstall(vm):
 
 def ParseHistogram(netperf_stdout):
   """Parses the histogram output from netperf.
-
   Args:
     netperf_stdout: string. The stdout from netperf containing a histogram.
 

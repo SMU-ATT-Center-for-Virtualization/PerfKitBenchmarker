@@ -123,3 +123,5 @@ flags.DEFINE_integer(
     'unset, all the files will be crawled. May range from 1 to 249.',
     1, 249
 )
+flags.DEFINE_boolean('aws_global_accelerator', False,
+                     'Whether to use AWS Global Accelerator for networking')

@@ -28,3 +28,9 @@ def _Install(vm):
   vm.RemoteCommand('cd iperf-3.9 && ./configure')
   vm.RemoteCommand('cd iperf-3.9 && make')
   vm.RemoteCommand('cd iperf-3.9 && sudo make install')
+
+
+def Install(vm):
+  """Install Cloud Harmory iperf benchmark on VM."""
+  # Follows instructions from https://software.es.net/iperf/obtaining.html.
+  _Install(vm)

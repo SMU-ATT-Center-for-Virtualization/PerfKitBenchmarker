@@ -649,6 +649,8 @@ class GceNetworkSpec(network.BaseNetworkSpec):
                project: Optional[str] = None,
                mtu: Optional[int] = None,
                machine_type: Optional[str] = None,
+               vpc_id: Optional[str] = None,
+               subnet_id: Optional[str] = None,
                **kwargs):
     """Initializes the GceNetworkSpec.
 
@@ -662,6 +664,8 @@ class GceNetworkSpec(network.BaseNetworkSpec):
     self.project = project
     self.mtu = mtu
     self.machine_type = machine_type
+    self.vpc_id = vpc_id
+    self.subnet_id = subnet_id
 
 
 class GceNetworkResource(resource.BaseResource):
@@ -761,8 +765,10 @@ class GceNetwork(network.BaseNetwork):
 
   def __init__(self, network_spec: GceNetworkSpec):
     super(GceNetwork, self).__init__(network_spec)
+
     self.project: Optional[str] = network_spec.project
     self.vpn_gateway: Dict[str, GceVpnGateway] = {}
+    self.network_spec = network_spec
 
     #  Figuring out the type of network here.
     #  Precedence: User Managed > MULTI > SINGLE > DEFAULT
@@ -786,7 +792,7 @@ class GceNetwork(network.BaseNetwork):
     if subnet_region is None:
       self.subnet_resource = None
     else:
-      self.subnet_resource = GceSubnetResource(FLAGS.gce_subnet_name or name,
+      self.subnet_resource = GceSubnetResource(self.network_spec.subnet_id or name,
                                                name, subnet_region,
                                                self.cidr, self.project)
 
@@ -903,8 +909,8 @@ class GceNetwork(network.BaseNetwork):
     Returns:
       String The name of this network.
     """
-    if FLAGS.gce_network_name:  # Return user managed network name if defined.
-      return FLAGS.gce_network_name
+    if self.network_spec.vpc_id:  # Return user managed network name if defined.
+      return self.network_spec.vpc_id
 
     net_type = net_type or self.net_type
     cidr = cidr or self.cidr
@@ -967,7 +973,9 @@ class GceNetwork(network.BaseNetwork):
         zone=vm.zone,
         cidr=vm.cidr,
         mtu=vm.mtu,
-        machine_type=vm.machine_type)
+        machine_type=vm.machine_type,
+        vpc_id=vm.vpc_id,
+        subnet_id=vm.subnet_id)
 
   @classmethod
   def _GetKeyFromNetworkSpec(
@@ -992,7 +1000,7 @@ class GceNetwork(network.BaseNetwork):
 
   def Create(self):
     """Creates the actual network."""
-    if not FLAGS.gce_network_name:
+    if not self.network_spec.vpc_id:
       self.network_resource.Create()
       if self.subnet_resource:
         self.subnet_resource.Create()
@@ -1013,7 +1021,7 @@ class GceNetwork(network.BaseNetwork):
     """Deletes the actual network."""
     if self.placement_group:
       self.placement_group.Delete()
-    if not FLAGS.gce_network_name:
+    if not self.network_spec.vpc_id:
       if getattr(self, 'vpn_gateway', False):
         vm_util.RunThreaded(
             lambda gateway: self.vpn_gateway[gateway].Delete(),

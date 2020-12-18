@@ -554,6 +554,8 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
     self.host = None
     self.id = None
     self.metadata.update({
+        'aws_global_accelerator': 
+            FLAGS.aws_global_accelerator,
         'spot_instance':
             self.use_spot_instance,
         'spot_price':
@@ -735,6 +737,20 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
         device_name = device['DeviceName']
         self.LogDeviceByName(device_name, volume_id, device_name)
         util.AddDefaultTags(volume_id, self.region)
+
+    if FLAGS.aws_global_accelerator:
+      #TODO associate elastic IP here
+      logging.warn("adding global acclerator stuff here")
+      self.network.elastic_ip.AssociateAddress(self.id)
+      self.ip_address = self.network.elastic_ip.public_ip
+      logging.warning(self.network.global_accelerator.Status())
+      status = self.network.global_accelerator.Status()
+      while(status == 'In Progress'):
+        status = self.network.global_accelerator.Status()
+        logging.warning(status)
+
+      self.ip_address = self.network.global_accelerator.ip_addresses[0]
+
 
   def _ConfigureEfa(self, instance):
     """Configuare EFA and associate Elastic IP.

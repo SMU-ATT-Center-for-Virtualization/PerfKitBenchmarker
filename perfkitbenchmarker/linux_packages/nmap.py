@@ -22,4 +22,5 @@ def YumInstall(vm):
 
 def AptInstall(vm):
   """Installs the nmap package on the VM."""
+  # vm.RemoteCommand(f'sudo snap install nmap')
   _Install(vm)

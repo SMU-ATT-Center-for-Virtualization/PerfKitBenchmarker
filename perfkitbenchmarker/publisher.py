@@ -44,6 +44,7 @@ from perfkitbenchmarker import vm_util
 import pytz
 import six
 from six.moves import urllib
+from datetime import datetime
 import six.moves.http_client as httplib
 
 FLAGS = flags.FLAGS
@@ -567,6 +568,18 @@ class BigQueryPublisher(SamplePublisher):
     with vm_util.NamedTemporaryFile(prefix='perfkit-bq-pub',
                                     dir=vm_util.GetTempDir(),
                                     suffix='.json') as tf:
+
+      for i in range(0, len(samples)):
+        int_timestamp = int(samples[i]['timestamp'])
+        samples[i]['date_time'] = datetime.utcfromtimestamp(int_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
+        if 'benchmark_name' in samples[i]['metadata']:
+              samples[i]['test'] = samples[i]['metadata']['benchmark_name']
+
+      print("PRINTING SAMPLES HERE")
+
+      print(samples)
+
       json_publisher = NewlineDelimitedJSONPublisher(tf.name,
                                                      collapse_labels=True)
       json_publisher.PublishSamples(samples)

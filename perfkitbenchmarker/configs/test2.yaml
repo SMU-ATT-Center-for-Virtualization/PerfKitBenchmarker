@@ -1,0 +1,53 @@
+benchmarks:
+  - iperf:
+      flags:
+        cloud: GCP
+        gce_network_tier: premium
+        gcp_min_cpu_platform: cascadelake
+        ip_addresses: INTERNAL
+        iperf_runtime_in_seconds: 30
+        iperf_sending_thread_count: 1
+        iperf_udp_per_stream_bandwidth: 70
+        rmem_max: 500000000
+        wmem_max: 500000000
+      vm_groups:
+        vm_1:
+          cloud: GCP
+          vm_spec:
+            GCP:
+              install_packages: true
+              machine_type: n2-sta-asdfd
+              zone: europe-west4-a
+        vm_2:
+          cloud: GCP
+          vm_spec:
+            GCP:
+              install_packages: true
+              machine_type: n2-standard-8
+              zone: us-east4-c
+  - iperf:
+      flags:
+        cloud: GCP
+        gce_network_tier: premium
+        gcp_min_cpu_platform: cascadelake
+        ip_addresses: INTERNAL
+        iperf_runtime_in_seconds: 30
+        iperf_sending_thread_count: 1
+        iperf_udp_per_stream_bandwidth: 70
+        rmem_max: 500000000
+        wmem_max: 500000000
+      vm_groups:
+        vm_1:
+          cloud: GCP
+          vm_spec:
+            GCP:
+              install_packages: true
+              machine_type: n2-standard-8
+              zone: europe-west4-a
+        vm_2:
+          cloud: GCP
+          vm_spec:
+            GCP:
+              install_packages: true
+              machine_type: n2-standard-8
+              zone: southamerica-east1-b

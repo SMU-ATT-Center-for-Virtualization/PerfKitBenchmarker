@@ -193,6 +193,11 @@ class GceVmSpec(virtual_machine.BaseVmSpec):
       config_values['threads_per_core'] = 1
     if flag_values['gce_tags'].present:
       config_values['gce_tags'] = flag_values.gce_tags
+    if flag_values['gce_network_name'].present:
+      config_values['vpc_id'] = flag_values.gce_network_name
+    if flag_values['gce_subnet_name'].present:
+      config_values['subnet_id'] = flag_values.gce_subnet_name
+
 
   @classmethod
   def _GetOptionDecoderConstructions(cls):
@@ -246,6 +251,12 @@ class GceVmSpec(virtual_machine.BaseVmSpec):
             'item_decoder': option_decoders.StringDecoder(),
             'default': None
         }),
+        'vpc_id': (option_decoders.StringDecoder, {
+            'default': None
+        }),
+        'subnet_id': (option_decoders.StringDecoder, {
+            'default': None
+        })
     })
     return result
 
@@ -412,7 +423,13 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
       errors.Config.InvalidValue: If the spec contains both "machine_type" and
           at least one of "cpus" or "memory".
     """
+
+
+
     super(GceVirtualMachine, self).__init__(vm_spec)
+    # These have to be before self._GetNetwork()
+    self.vpc_id = vm_spec.vpc_id
+    self.subnet_id = vm_spec.subnet_id
     self.boot_metadata = {}
     self.ssd_interface = vm_spec.ssd_interface
     self.cpus = vm_spec.cpus
@@ -1057,6 +1074,7 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
       result['threads_per_core'] = self.threads_per_core
     if self.network.mtu:
       result['mtu'] = self.network.mtu
+    result['id'] = self.id
     return result
 
   def SimulateMaintenanceEvent(self):
