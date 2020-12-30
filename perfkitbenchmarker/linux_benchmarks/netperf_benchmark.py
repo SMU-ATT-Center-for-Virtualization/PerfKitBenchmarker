@@ -79,6 +79,9 @@ flags.DEFINE_integer(
     'If you try to set the MSS lower than 88 bytes, the default MSS will be '
     'used.')
 
+flags.DEFINE_integer('netperf_rr_test_length', None,
+                     'netperf TCP/UDP RR test length in transactions',
+                     lower_bound=1)
 ALL_BENCHMARKS = ['TCP_RR', 'TCP_CRR', 'TCP_STREAM', 'UDP_RR', 'UDP_STREAM']
 flags.DEFINE_list('netperf_benchmarks', ALL_BENCHMARKS,
                   'The netperf benchmark(s) to run.')
@@ -362,7 +365,15 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   remote_cmd_timeout = (
       FLAGS.netperf_test_length * (FLAGS.netperf_max_iter or 1) + 300)
 
-  metadata = {'netperf_test_length': FLAGS.netperf_test_length,
+  if benchmark_name.upper() in ['TCP_RR', 'UDP_RR'] and FLAGS.netperf_rr_test_length:
+    test_length = FLAGS.netperf_rr_test_length
+    test_length_unit = 'transactions'
+  else:
+    test_length = FLAGS.netperf_test_length
+    test_length_unit = 'seconds'
+
+  metadata = {'netperf_test_length': test_length,
+              'netperf_test_length_unit': test_length_unit,
               'sending_thread_count': num_streams,
               'max_iter': FLAGS.netperf_max_iter or 1}
 
@@ -374,7 +385,7 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
                      netperf_path=netperf.NETPERF_PATH,
                      benchmark_name=benchmark_name,
                      server_ip=server_ip,
-                     length=FLAGS.netperf_test_length,
+                     length=test_length,
                      output_selector=OUTPUT_SELECTOR,
                      confidence=confidence,
                      verbosity=verbosity)
