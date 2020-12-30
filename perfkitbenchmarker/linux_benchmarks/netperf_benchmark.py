@@ -368,9 +368,11 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   if benchmark_name.upper() in ['TCP_RR', 'UDP_RR'] and FLAGS.netperf_rr_test_length:
     test_length = FLAGS.netperf_rr_test_length
     test_length_unit = 'transactions'
+    test_length_cmd = (-1 * abs(FLAGS.netperf_rr_test_length))
   else:
     test_length = FLAGS.netperf_test_length
     test_length_unit = 'seconds'
+    test_length_cmd = test_length
 
   metadata = {'netperf_test_length': test_length,
               'netperf_test_length_unit': test_length_unit,
@@ -385,7 +387,7 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
                      netperf_path=netperf.NETPERF_PATH,
                      benchmark_name=benchmark_name,
                      server_ip=server_ip,
-                     length=test_length,
+                     length=test_length_cmd,
                      output_selector=OUTPUT_SELECTOR,
                      confidence=confidence,
                      verbosity=verbosity)
