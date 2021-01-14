@@ -885,10 +885,14 @@ class AwsNetwork(network.BaseNetwork):
     if _AWS_SUBNET.value == 'default':
       vpc_id = _get_default_vpc_id(vm.region)
       subnet_id = _get_default_subnet_id(vm.zone)
-    else:
+    elif _AWS_VPC.value or _AWS_SUBNET.value:
       vpc_id = _AWS_VPC.value
       subnet_id = _AWS_SUBNET.value
+    else:
+      vpc_id = vm.aws_vpc
+      subnet_id = vm.aws_subnet
     return AwsNetworkSpec(vm.zone, vpc_id, subnet_id, vm.machine_type)
+
 
   def Create(self):
     """Creates the network."""
