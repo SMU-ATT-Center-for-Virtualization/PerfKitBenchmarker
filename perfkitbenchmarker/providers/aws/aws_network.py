@@ -771,7 +771,7 @@ class AwsNetwork(network.BaseNetwork):
   @staticmethod
   def _GetNetworkSpecFromVm(vm):
     """Returns an AwsNetworkSpec created from VM attributes and flags."""
-    return AwsNetworkSpec(vm.zone, FLAGS.aws_vpc, FLAGS.aws_subnet)
+    return AwsNetworkSpec(vm.zone, vm.aws_vpc, vm.aws_subnet)
 
   def Create(self):
     """Creates the network."""

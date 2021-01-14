@@ -343,6 +343,10 @@ class AwsVmSpec(virtual_machine.BaseVmSpec):
     if flag_values['aws_spot_block_duration_minutes'].present:
       config_values['spot_block_duration_minutes'] = int(
           flag_values.aws_spot_block_duration_minutes)
+    if flag_values['aws_vpc'].present:
+      config_values['vpc_id'] = flag_values.aws_vpc
+    if flag_values['aws_subnet'].present:
+      config_values['subnet_id'] = flag_values.aws_subnet
 
   @classmethod
   def _GetOptionDecoderConstructions(cls):
@@ -365,6 +369,12 @@ class AwsVmSpec(virtual_machine.BaseVmSpec):
             'default': None
         }),
         'boot_disk_size': (option_decoders.IntDecoder, {
+            'default': None
+        }),
+        'vpc_id': (option_decoders.StringDecoder, {
+            'default': None
+        }),
+        'subnet_id': (option_decoders.StringDecoder, {
             'default': None
         })
     })
@@ -494,6 +504,8 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
     if self.machine_type in aws_disk.NUM_LOCAL_VOLUMES:
       self.max_local_disks = aws_disk.NUM_LOCAL_VOLUMES[self.machine_type]
     self.user_data = None
+    self.aws_vpc = vm_spec.vpc_id
+    self.aws_subnet = vm_spec.subnet_id
     self.network = aws_network.AwsNetwork.GetNetwork(self)
     self.placement_group = getattr(vm_spec, 'placement_group',
                                    self.network.placement_group)
