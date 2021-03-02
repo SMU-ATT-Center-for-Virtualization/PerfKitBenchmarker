@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#python3 pkb.py --benchmarks=psping --benchmark_config_file=windows_example.yaml --os_type=windows2019_core
 
-"""Module containing psping installation and cleanup functions.
-
+"""
+Module containing psping installation and cleanup functions.
 psping is a tool made for benchmarking Windows networking.
-
 """
 
 import json
@@ -48,9 +48,14 @@ flags.DEFINE_integer('psping_rr_count', 1000,
 flags.DEFINE_integer('psping_timeout', 10,
                      'The time to allow psping to run')
 
+flags.DEFINE_enum('psping_test_type', 'ICMP', ['ICMP', 'TCP_Ping', 'TCP_Latency'],
+                  'The type of psping test to run; ICMP, TCP_Ping, TCP_Latency')
+
 
 def Install(vm):
-  """Installs the psping package on the VM."""
+  """
+  Installs the psping package on the VM
+  """
   zip_path = ntpath.join(vm.temp_dir, PSPING_ZIP)
   vm.DownloadFile(PSPING_URL, zip_path)
   vm.UnzipFile(zip_path, vm.temp_dir)
@@ -79,7 +84,8 @@ def _RunPsping(vm, command):
 
 @vm_util.Retry(max_retries=3)
 def RunLatencyTest(sending_vm, receiving_vm, use_internal_ip=True):
-  """Run the psping latency test.
+  """
+  Run the psping latency test.
 
   Uses a TCP request-response time to measure latency.
 
@@ -91,29 +97,54 @@ def RunLatencyTest(sending_vm, receiving_vm, use_internal_ip=True):
   Returns:
     list of samples representing latency between the two VMs.
   """
+
   server_ip = (receiving_vm.internal_ip if use_internal_ip
                else receiving_vm.ip_address)
 
-  client_command = (
+  client_command = None
+  server_command = 'dir'
+  out_file_flag = (' > {out_file}').format(out_file=PSPING_OUTPUT_FILE)
+
+  if FLAGS.psping_test_type == 'ICMP' or FLAGS.psping_test_type == 'TCP_Ping':
+    client_command = (
       'cd {psping_exec_dir}; '
       'sleep 2;'  # sleep to make sure the server starts first.
-      '.\\psping.exe /accepteula -l {packet_size} -i 0 -q '
-      '-n {rr_count} -h {bucket_count} {ip}:{port}'
-      ' > {out_file}').format(
+      '.\\psping.exe /accepteula -h {bucket_count} -i 0 '
+      '-q -t {rr_count} {ip}').format(
+          psping_exec_dir=sending_vm.temp_dir,
+          bucket_count=FLAGS.psping_bucket_count,
+          rr_count=FLAGS.psping_rr_count,
+          ip=server_ip)
+    if FLAGS.psping_test_type == 'TCP_Ping':
+      client_command += ':'
+      client_command += str(TEST_PORT)
+  elif FLAGS.psping_test_type == "TCP_Latency":
+    client_command = (
+      'cd {psping_exec_dir}; '
+      'sleep 2;'  # sleep to make sure the server starts first.
+      '.\\psping.exe /accepteula -l {packet_size} '
+      '-n {rr_count} -h {bucket_count} {ip}:{port}').format(
           psping_exec_dir=sending_vm.temp_dir,
           packet_size=FLAGS.psping_packet_size,
           rr_count=FLAGS.psping_rr_count,
           bucket_count=FLAGS.psping_bucket_count,
           ip=server_ip,
-          port=TEST_PORT,
-          out_file=PSPING_OUTPUT_FILE)
-
-  # PSPing does not have a configurable timeout. To get around this, start the
-  # server as a background job, then kill it after 10 seconds
-  server_command = (
+          port=TEST_PORT)
+    server_command = (
       '{psping_exec_dir}\\psping.exe /accepteula -s 0.0.0.0:{port};').format(
           psping_exec_dir=receiving_vm.temp_dir,
           port=TEST_PORT)
+    _RunPsping(sending_vm, client_command)
+
+  client_command += out_file_flag
+
+  # PSPing does not have a configurable timeout. To get around this, start the
+  # server as a background job, then kill it after 10 seconds
+
+  print('###################################################################')
+  print(client_command)
+  print(server_command)
+  print('###################################################################')
 
   process_args = [(_RunPsping, (receiving_vm, server_command), {}),
                   (_RunPsping, (sending_vm, client_command), {})]
@@ -125,6 +156,11 @@ def RunLatencyTest(sending_vm, receiving_vm, use_internal_ip=True):
       out_file=PSPING_OUTPUT_FILE)
 
   output, _ = sending_vm.RemoteCommand(cat_command)
+
+  print('###################################################################')
+  print(output)
+  print('###################################################################')
+
   return ParsePspingResults(output, sending_vm, receiving_vm, use_internal_ip)
 
 # example output
@@ -155,7 +191,8 @@ def RunLatencyTest(sending_vm, receiving_vm, use_internal_ip=True):
 
 
 def ParsePspingResults(results, client_vm, server_vm, internal_ip_used):
-  """Turn psping output into a list of samples.
+  """
+  Turn psping output into a list of samples.
 
   Args:
     results: string of the psping output
