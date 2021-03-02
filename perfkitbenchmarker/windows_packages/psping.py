@@ -62,7 +62,6 @@ def Install(vm):
   vm.AllowPort(TEST_PORT)
   vm.SetProcessPriorityToHighByFlag('psping.exe')
 
-
 def StartPspingServer(vm):
   server_command = (
       'Start-Job -ScriptBlock {{'
