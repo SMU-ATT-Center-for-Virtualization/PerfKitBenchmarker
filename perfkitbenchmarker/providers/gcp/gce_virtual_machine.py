@@ -479,7 +479,7 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
           'placement_group_style'] = placement_group.PLACEMENT_GROUP_NONE
 
     if self.gce_egress_bandwidth_tier:
-      cmd.use_alpha_gcloud = True
+      cmd.use_beta_gcloud = True
       network_performance_configs = f'total-egress-bandwidth-tier={self.gce_egress_bandwidth_tier}'
       cmd.flags['network-performance-configs'] = network_performance_configs
 
