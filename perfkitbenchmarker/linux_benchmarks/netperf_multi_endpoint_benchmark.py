@@ -25,10 +25,12 @@ to test packets per second
 
 import logging
 import re
+import os
 from absl import flags
 from perfkitbenchmarker import configs
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
+from perfkitbenchmarker import data
 from perfkitbenchmarker.linux_packages import netperf
 
 FLAGS = flags.FLAGS
@@ -62,7 +64,13 @@ def PrepareNetperfAggregate(vm):
   """Installs netperf on a single vm."""
 
   vm.Install('texinfo')
-  vm.Install('python_rrdtool')
+  # vm.Install('python_rrdtool')
+  vm.RemoteCommand('curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py')
+  vm.RemoteCommand('sudo python get-pip.py')
+  # vm.Install('pip')
+  vm.RemoteCommand('sudo apt -y install gcc g++ librrd-dev')
+  vm.RemoteCommand('sudo apt -y install libpython2-dev')
+  vm.RemoteCommand('sudo pip install rrdtool')
   vm.Install('netperf')
 
   port_end = PORT_START
@@ -89,7 +97,7 @@ def Prepare(benchmark_spec):
 
   # vms = benchmark_spec.vms
   
-
+  vms = benchmark_spec.vms
   vm_dict = benchmark_spec.vm_groups
   client_vms = vm_dict['client']
   server_vms = vm_dict['servers']
@@ -100,13 +108,13 @@ def Prepare(benchmark_spec):
   print("SERVER VMS")
   print(server_vms)
 
-  vm_util.RunThreaded(PrepareNetperfAggregate, server_vms)
+  vm_util.RunThreaded(PrepareNetperfAggregate, vms)
   # Copy remote test script to client
   path = data.ResourcePath(os.path.join(REMOTE_SCRIPTS_DIR, REMOTE_SCRIPT))
   logging.info('Uploading %s to %s', path, client_vm)
   print("COPY FILE TO REMOTE")
-  client_vm.PushFile(path, netperf.NETPERF_EXAMPLE_DIR)
-  client_vm.RemoteCommand(f'sudo chmod 777 {REMOTE_SCRIPT}')
+  client_vm.PushDataFile(path, netperf.NETPERF_EXAMPLE_DIR + REMOTE_SCRIPT)
+  client_vm.RemoteCommand(f'sudo chmod 777 {netperf.NETPERF_EXAMPLE_DIR + REMOTE_SCRIPT}')
 
 
 def ParseNetperfAggregateOutput(stdout):
@@ -180,7 +188,7 @@ def RunNetperfAggregate(vm, server_ips):
 
   # print out netperf_tps.log to log
   stdout_1, stderr_1 = vm.RemoteCommand(
-      f'cat {netperf.NETPERF_EXAMPLE_DIR}/netperf_tps.log',
+      f'cat {netperf.NETPERF_EXAMPLE_DIR}/netperf_outbound.log',
       ignore_failure=True,
       should_log=True,
       login_shell=False,
@@ -192,7 +200,7 @@ def RunNetperfAggregate(vm, server_ips):
   # do post processing step
   proc_stdout, _ = vm.RemoteCommand(
       f'cd {netperf.NETPERF_EXAMPLE_DIR} && ./post_proc.py '
-      '--intervals netperf_tps.log',
+      '--intervals netperf_outbound.log',
       ignore_failure=True)
 
   print(proc_stdout)

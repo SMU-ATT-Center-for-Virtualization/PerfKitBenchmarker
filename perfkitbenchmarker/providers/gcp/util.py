@@ -183,6 +183,7 @@ class GcloudCommand(object):
     self._AddCommonFlags(resource)
     self.rate_limited = False
     self.use_alpha_gcloud = False
+    self.use_beta_gcloud = False
 
   def GetCommand(self):
     """Generates the gcloud command.
@@ -204,6 +205,8 @@ class GcloudCommand(object):
     cmd.extend(self.additional_flags)
     if self.use_alpha_gcloud and len(cmd) > 1 and cmd[1] != 'alpha':
       cmd.insert(1, 'alpha')
+    elif self.use_beta_gcloud and len(cmd) > 1 and cmd[1] != 'beta':
+      cmd.insert(1, 'beta')
     return cmd
 
   def __repr__(self):
