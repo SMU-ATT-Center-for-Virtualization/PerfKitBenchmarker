@@ -2,19 +2,21 @@ netperf_multi_endpoint:
   description: netperf egress to multiple endpoints
   vm_groups:
     servers:
+      os_type: ubuntu2004
       vm_spec:
         GCP:
-          machine_type: n2-standard-80
+          machine_type: n2-standard-32
           zone: us-east1-b
           image: ubuntu-20-gvnic
-      vm_count: 2
+          
+      vm_count: 4
     client:
+      os_type: ubuntu2004
       vm_spec:
         GCP:
           machine_type: n2-standard-80
           zone: us-east1-b
           image: ubuntu-20-gvnic
-
   flags:
     cloud: GCP
     iperf_runtime_in_seconds: 20
