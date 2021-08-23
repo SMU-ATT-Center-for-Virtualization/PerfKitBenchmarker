@@ -13,11 +13,9 @@
 # limitations under the License.
 
 """Runs plain netperf in a few modes.
-
 docs:
 https://hewlettpackard.github.io/netperf/doc/netperf.html
 manpage: http://manpages.ubuntu.com/manpages/maverick/man1/netperf.1.html
-
 Runs TCP_RR, TCP_CRR, and TCP_STREAM benchmarks from netperf across two
 machines.
 """
@@ -109,7 +107,10 @@ OUTPUT_SELECTOR = (
     'P99_LATENCY,STDDEV_LATENCY,MIN_LATENCY,MAX_LATENCY,'
     'CONFIDENCE_ITERATION,THROUGHPUT_CONFID,'
     'LOCAL_TRANSPORT_RETRANS,REMOTE_TRANSPORT_RETRANS,'
-    'TRANSPORT_MSS')
+    'TRANSPORT_MSS,REMOTE_BYTES_RECVD,LOCAL_BYTES_SENT,'
+    'LOCAL_BYTES_PER_SEND,REMOTE_BYTES_PER_RECV,'
+    'LOCAL_SEND_THROUGHPUT,LOCAL_RECV_THROUGHPUT,'
+    'REMOTE_SEND_THROUGHPUT,REMOTE_RECV_THROUGHPUT')
 
 # Command ports are even (id*2), data ports are odd (id*2 + 1)
 PORT_START = 20000
@@ -171,7 +172,6 @@ def Prepare(benchmark_spec):
 
 def _SetupHostFirewall(benchmark_spec):
   """Set up host firewall to allow incoming traffic.
-
   Args:
     benchmark_spec: The benchmark specification. Contains all data that is
         required to run the benchmark.
@@ -291,9 +291,24 @@ def ParseNetperfOutput(stdout, metadata, benchmark_name,
         ('Remote Transport Retransmissions', 'netserver_retransmissions'),
         ('Transport MSS bytes', 'netperf_mss')
     ])
-
+  if 'UDP' in benchmark_name:
+    meta_keys.extend([
+        ('Remote Bytes Received', 'remote_bytes_received'),
+        ('Local Bytes Sent', 'local_bytes_sent'),
+        ('Local Bytes Per Send', 'local_bytes_per_send'),
+        ('Local Send Throughput', 'local_send_throughput'),
+        ('Local Recv Throughput', 'local_recv_throughput'),
+        ('Remote Send Throughput', 'remote_send_throughput'),
+        ('Remote Recv Throughput', 'remote_recv_throughput')
+    ])
+  # Remote Bytes Received,Local Bytes Sent,Local Bytes Per Send,Remote Bytes Per Recv
   metadata.update({meta_key: results[netperf_key]
                    for netperf_key, meta_key in meta_keys})
+  if 'UDP' in benchmark_name:
+    bytes_lost = int(metadata['local_bytes_sent']) - int(metadata['remote_bytes_received'])
+    packets_lost = bytes_lost / float(metadata['local_bytes_per_send'])
+    metadata['bytes_lost'] = bytes_lost
+    metadata['packets_lost'] = packets_lost
 
   # Create the throughput sample
   throughput = float(results['Throughput'])
@@ -338,7 +353,7 @@ def ParseNetperfOutput(stdout, metadata, benchmark_name,
   return (throughput_sample, latency_samples, latency_hist)
 
 
-def RunNetperf(vm, benchmark_name, server_ip, num_streams):
+def RunNetperf(vm, server_vm, benchmark_name, server_ip, num_streams):
   """Spawns netperf on a remote VM, parses results.
 
   Args:
@@ -367,9 +382,9 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   verbosity = '-v2 ' if enable_latency_histograms else ''
 
   remote_cmd_timeout = (
-      FLAGS.netperf_test_length * (FLAGS.netperf_max_iter or 1) + 300)
+      FLAGS.netperf_test_length * (FLAGS.netperf_max_iter or 1) + 3000)
 
-  metadata = {'netperf_test_length': FLAGS.netperf_test_length,
+  metadata = {'netperf_test_length': test_length,
               'sending_thread_count': num_streams,
               'max_iter': FLAGS.netperf_max_iter or 1}
 
@@ -409,6 +424,34 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
   # TODO(dlott): Analyze process start delta of netperf processes on the remote
   #              machine
 
+  # Get netstat -s -u on both machines for UDP tests
+  # netstats_before = {}
+  # print(benchmark_name)
+  # if 'UDP' in benchmark_name.upper():
+  #   client_netstat, _ = vm.RemoteCommand('netstat -s -u')
+  #   server_netstat, _ = server_vm.RemoteCommand('netstat -s -u')
+  #   print(client_netstat)
+  #   print(server_netstat)
+  #   netstats_before['client_packets_sent'] = int(re.findall(r'(\d+)\s+packets\ssent', client_netstat)[0])
+  #   netstats_before['client_send_buffer_errors'] = int(re.findall(r'(\d+)\s+send\sbuffer\serrors', client_netstat)[0])
+  #   netstats_before['server_packets_received'] = int(re.findall(r'(\d+)\s+packets\sreceived', server_netstat)[0])
+  #   netstats_before['server_receive_errors'] = int(re.findall(r'(\d+)\s+packet\sreceive\serrors', server_netstat)[0])
+  #   netstats_before['server_receive_buffer_errors'] = int(re.findall(r'(\d+)\s+receive\sbuffer\serrors', server_netstat)[0])
+
+
+  # client_ip_link, _ = vm.RemoteCommand('ip link show')
+  # print("NETWORK INTERFACES:")
+  # print(client_ip_link)
+
+  # #TODO change from ens4 to whatever we are running on
+  # client_ethtool_before, _ = vm.RemoteCommand('ethtool -S ens4')
+  # print("BEFORE ethtool -S ens4")
+  # print(client_ethtool_before)
+
+  # remote_ethtool_before, _ = server_vm.RemoteCommand('ethtool -S ens4')
+  # print("BEFORE ethtool -S ens4")
+  # print(remote_ethtool_before)
+
   # Give the remote script the max possible test length plus 5 minutes to
   # complete
   remote_cmd_timeout = \
@@ -417,6 +460,30 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
                 f'--num_streams={num_streams} --port_start={PORT_START}')
   remote_stdout, _ = vm.RobustRemoteCommand(remote_cmd, should_log=True,
                                             timeout=remote_cmd_timeout)
+
+  # netstats_after = {}
+  # if 'UDP' in benchmark_name.upper():
+  #   client_netstat, _ = vm.RemoteCommand('netstat -s -u')
+  #   server_netstat, _ = server_vm.RemoteCommand('netstat -s -u')
+  #   print(client_netstat)
+  #   print(server_netstat)
+  #   netstats_after['client_packets_sent'] = int(re.findall(r'(\d+)\s+packets\ssent', client_netstat)[0])
+  #   netstats_after['client_send_buffer_errors'] = int(re.findall(r'(\d+)\s+send\sbuffer\serrors', client_netstat)[0])
+  #   netstats_after['server_packets_received'] = int(re.findall(r'(\d+)\s+packets\sreceived', server_netstat)[0])
+  #   netstats_after['server_receive_errors'] = int(re.findall(r'(\d+)\s+packet\sreceive\serrors', server_netstat)[0])
+  #   netstats_after['server_receive_buffer_errors'] = int(re.findall(r'(\d+)\s+receive\sbuffer\serrors', server_netstat)[0])
+
+  #   netstat_packets_sent = netstats_after['client_packets_sent'] - netstats_before['client_packets_sent']
+  #   netstat_send_buffer_errors = netstats_after['client_send_buffer_errors'] - netstats_before['client_send_buffer_errors']
+  #   netstat_packets_received = netstats_after['server_packets_received'] - netstats_before['server_packets_received']
+  #   netstat_receive_errors = netstats_after['server_receive_errors'] - netstats_before['server_receive_errors']
+  #   netstat_receive_buffer_errors = netstats_after['server_receive_buffer_errors'] - netstats_before['server_receive_buffer_errors']
+
+  #   metadata['netstat_packets_sent'] = netstat_packets_sent
+  #   metadata['netstat_packets_received'] = netstat_packets_received
+  #   metadata['netstat_send_buffer_errors'] = netstat_send_buffer_errors
+  #   metadata['netstat_receive_errors'] = netstat_receive_errors
+  #   metadata['netstat_receive_buffer_errors'] = netstat_receive_buffer_errors
 
   # Decode stdouts, stderrs, and return codes from remote command's stdout
   json_out = json.loads(remote_stdout)
@@ -451,6 +518,39 @@ def RunNetperf(vm, benchmark_name, server_ip, num_streams):
     # Calculate aggregate throughput
     throughput_stats['total'] = throughput_stats['average'] * len(throughputs)
     # Create samples for throughput stats
+
+    #update metadata
+    if 'UDP' in benchmark_name:
+      packets_lost_list = []
+      bytes_lost_list = []
+      remote_bytes_recieved = []
+      local_bytes_sent = []
+      local_bytes_per_send = float(throughput_samples[0].metadata['local_bytes_per_send'])
+      remote_receive_throughput = []
+      local_send_throughput = []
+      for s in throughput_samples:
+        packets_lost_list.append(s.metadata['packets_lost'])
+        bytes_lost_list.append(s.metadata['bytes_lost'])
+        remote_bytes_recieved.append(int(s.metadata['remote_bytes_received']))
+        local_bytes_sent.append(int(s.metadata['local_bytes_sent']))
+        remote_receive_throughput.append(float(s.metadata['remote_recv_throughput']))
+        local_send_throughput.append(float(s.metadata['local_send_throughput']))
+
+      packets_lost_total = sum(packets_lost_list)
+      bytes_lost_total = sum(bytes_lost_list)
+      remote_receive_throughput_total = sum(remote_receive_throughput)
+      local_send_throughput_total = sum(local_send_throughput)
+      packets_lost_average = packets_lost_total/len(packets_lost_list)
+      bytes_lost_average = bytes_lost_total/len(bytes_lost_list)
+      metadata['netperf_packets_lost_total'] = packets_lost_total
+      metadata['netperf_packets_lost_average_per_stream'] = packets_lost_average
+      metadata['netperf_bytes_lost_total'] = bytes_lost_total
+      metadata['netperf_bytes_lost_average_per_stream'] = bytes_lost_average
+      metadata['netperf_total_packets_sent'] = sum(local_bytes_sent) / local_bytes_per_send
+      metadata['netperf_total_packets_received'] = sum(remote_bytes_recieved) / local_bytes_per_send
+      metadata['netperf_local_send_throughput_total'] = local_send_throughput_total
+      metadata['netperf_remote_receive_throughput_total'] = remote_receive_throughput_total
+
     for stat, value in throughput_stats.items():
       samples.append(
           sample.Sample(f'{benchmark_name}_Throughput_{stat}',
@@ -504,7 +604,7 @@ def Run(benchmark_spec):
 
     for netperf_benchmark in FLAGS.netperf_benchmarks:
       if vm_util.ShouldRunOnExternalIpAddress():
-        external_ip_results = RunNetperf(client_vm, netperf_benchmark,
+        external_ip_results = RunNetperf(client_vm, server_vm, netperf_benchmark,
                                          server_vm.ip_address, num_streams)
         for external_ip_result in external_ip_results:
           external_ip_result.metadata[
@@ -513,7 +613,7 @@ def Run(benchmark_spec):
         results.extend(external_ip_results)
 
       if vm_util.ShouldRunOnInternalIpAddress(client_vm, server_vm):
-        internal_ip_results = RunNetperf(client_vm, netperf_benchmark,
+        internal_ip_results = RunNetperf(client_vm, server_vm, netperf_benchmark,
                                          server_vm.internal_ip, num_streams)
         for internal_ip_result in internal_ip_results:
           internal_ip_result.metadata.update(metadata)
