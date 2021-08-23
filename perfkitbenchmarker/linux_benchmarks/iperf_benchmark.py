@@ -169,14 +169,12 @@ def _RunIperf(sending_vm, receiving_vm, receiving_ip_address, thread_count,
     window_size_match = re.search(
         r'TCP window size: (?P<size>\d+\.?\d+) (?P<units>\S+)', stdout)
     
-    window_size = 0
     # search returns NoneType if no match is found
     if window_size_match:
         window_size = float(window_size_match.group('size'))
 
     buffer_size_match = re.search(r'Write buffer size: (?P<buffer_size>\d+\.\d+) \S+', stdout)
 
-    buffer_size = 0
     # search returns NoneType if no match is found
     if buffer_size_match:
         buffer_size = float(buffer_size_match.group('buffer_size'))
