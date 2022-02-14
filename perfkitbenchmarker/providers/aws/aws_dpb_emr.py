@@ -16,14 +16,17 @@
 Clusters can be created and deleted.
 """
 
+import collections
 import json
 import logging
 
 from absl import flags
+from perfkitbenchmarker import disk
 from perfkitbenchmarker import dpb_service
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.providers import aws
+from perfkitbenchmarker.providers.aws import aws_disk
 from perfkitbenchmarker.providers.aws import aws_network
 from perfkitbenchmarker.providers.aws import aws_virtual_machine
 from perfkitbenchmarker.providers.aws import s3
@@ -33,8 +36,6 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('dpb_emr_release_label', None,
                     'DEPRECATED use dpb_service.version.')
 
-SPARK_SAMPLE_LOCATION = 'file:///usr/lib/spark/examples/jars/spark-examples.jar'
-
 INVALID_STATES = ['TERMINATED_WITH_ERRORS', 'TERMINATED']
 READY_CHECK_SLEEP = 30
 READY_CHECK_TRIES = 60
@@ -43,9 +44,39 @@ JOB_WAIT_SLEEP = 30
 EMR_TIMEOUT = 14400
 
 disk_to_hdfs_map = {
-    'st1': 'HDD',
-    'gp2': 'SSD'
+    aws_disk.ST1: 'HDD',
+    aws_disk.GP2: 'SSD',
+    disk.LOCAL: 'Local SSD',
 }
+
+DATAPROC_TO_EMR_CONF_FILES = {
+    # https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps.html
+    'core': 'core-site',
+    'hdfs': 'hdfs-site',
+    # https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-spark-configure.html
+    'spark': 'spark-defaults',
+}
+
+
+def _GetClusterConfiguration():
+  """Return a JSON string containing dpb_cluster_properties."""
+  properties = collections.defaultdict(lambda: {})
+  for entry in FLAGS.dpb_cluster_properties:
+    file, kv = entry.split(':')
+    key, value = kv.split('=')
+    if file not in DATAPROC_TO_EMR_CONF_FILES:
+      raise errors.Config.InvalidValue(
+          'Unsupported EMR configuration file "{}". '.format(file) +
+          'Please add it to aws_dpb_emr.DATAPROC_TO_EMR_CONF_FILES.')
+    properties[DATAPROC_TO_EMR_CONF_FILES[file]][key] = value
+  json_conf = []
+  for file, props in properties.items():
+    json_conf.append({
+        # https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps.html
+        'Classification': file,
+        'Properties': props,
+    })
+  return json.dumps(json_conf)
 
 
 class EMRRetryableException(Exception):
@@ -68,7 +99,6 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
 
   CLOUD = aws.CLOUD
   SERVICE_TYPE = 'emr'
-  PERSISTENT_FS_PREFIX = 's3://'
 
   def __init__(self, dpb_service_spec):
     super(AwsDpbEmr, self).__init__(dpb_service_spec)
@@ -85,6 +115,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
         aws_network.AwsNetworkSpec(zone=self.dpb_service_zone))
     self.storage_service = s3.S3Service()
     self.storage_service.PrepareService(self.region)
+    self.persistent_fs_prefix = 's3://'
     self.bucket_to_delete = None
     self.dpb_version = FLAGS.dpb_emr_release_label or self.dpb_version
     if not self.dpb_version:
@@ -100,43 +131,30 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
     """Returns the security group ID of this Cluster."""
     return self.network.regional_network.vpc.default_security_group_id
 
-  def _CreateLogBucket(self):
-    """Create the s3 bucket for the EMR cluster's logs."""
-    log_bucket_name = 'pkb-{0}-emr'.format(FLAGS.run_uri)
-    self.storage_service.MakeBucket(log_bucket_name)
-    return 's3://{}'.format(log_bucket_name)
-
-  def _DeleteLogBucket(self):
-    """Delete the s3 bucket holding the EMR cluster's logs.
-
-    This method is part of the Delete lifecycle of the resource.
-    """
-    # TODO(saksena): Deprecate the use of FLAGS.run_uri and plumb as argument.
-    log_bucket_name = 'pkb-{0}-emr'.format(FLAGS.run_uri)
-    self.storage_service.DeleteBucket(log_bucket_name)
-
   def _CreateDependencies(self):
     """Set up the ssh key."""
+    super(AwsDpbEmr, self)._CreateDependencies()
     aws_virtual_machine.AwsKeyFileManager.ImportKeyfile(self.region)
 
   def _Create(self):
     """Creates the cluster."""
     name = 'pkb_' + FLAGS.run_uri
 
-    # Set up ebs details if disk_spec is present int he config
+    # Set up ebs details if disk_spec is present in the config
     ebs_configuration = None
     if self.spec.worker_group.disk_spec:
       # Make sure nothing we are ignoring is included in the disk spec
       assert self.spec.worker_group.disk_spec.device_path is None
       assert self.spec.worker_group.disk_spec.disk_number is None
       assert self.spec.worker_group.disk_spec.iops is None
-      ebs_configuration = {'EbsBlockDeviceConfigs': [
-          {'VolumeSpecification': {
-              'SizeInGB': self.spec.worker_group.disk_spec.disk_size,
-              'VolumeType': self.spec.worker_group.disk_spec.disk_type},
-           'VolumesPerInstance': self.spec.worker_group.disk_count}]}
       self.dpb_hdfs_type = disk_to_hdfs_map[
           self.spec.worker_group.disk_spec.disk_type]
+      if self.spec.worker_group.disk_spec.disk_type != disk.LOCAL:
+        ebs_configuration = {'EbsBlockDeviceConfigs': [
+            {'VolumeSpecification': {
+                'SizeInGB': self.spec.worker_group.disk_spec.disk_size,
+                'VolumeType': self.spec.worker_group.disk_spec.disk_type},
+             'VolumesPerInstance': self.spec.worker_group.disk_count}]}
 
     # Create the specification for the master and the worker nodes
     instance_groups = []
@@ -157,11 +175,6 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
     instance_groups.append(core_instances)
     instance_groups.append(master_instance)
 
-    # Create the log bucket to hold job's log output
-    # TODO(saksena): Deprecate aws_emr_loguri flag and move
-    # the log bucket creation to Create dependencies.
-    logs_bucket = self._CreateLogBucket()
-
     # Spark SQL needs to access Hive
     cmd = self.cmd_prefix + ['emr', 'create-cluster', '--name', name,
                              '--release-label', self.dpb_version,
@@ -170,7 +183,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
                              json.dumps(instance_groups),
                              '--application', 'Name=Spark',
                              'Name=Hadoop', 'Name=Hive',
-                             '--log-uri', logs_bucket]
+                             '--log-uri', self.base_dir]
 
     ec2_attributes = [
         'KeyName=' + aws_virtual_machine.AwsKeyFileManager.GetKeyNameForRun(),
@@ -181,6 +194,9 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
         'EmrManagedSlaveSecurityGroup=' + self.security_group_id,
     ]
     cmd += ['--ec2-attributes', ','.join(ec2_attributes)]
+
+    if FLAGS.dpb_cluster_properties:
+      cmd += ['--configurations', _GetClusterConfiguration()]
 
     stdout, _, _ = vm_util.IssueCommand(cmd)
     result = json.loads(stdout)
@@ -205,7 +221,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
       vm_util.IssueCommand(delete_cmd, raise_on_failure=False)
 
   def _DeleteDependencies(self):
-    self._DeleteLogBucket()
+    super(AwsDpbEmr, self)._DeleteDependencies()
     aws_virtual_machine.AwsKeyFileManager.DeleteKeyfile(self.region)
 
   def _Exists(self):
@@ -236,22 +252,12 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
     # TODO(saksena): Handle error outcomees when spinning up emr clusters
     return result['Cluster']['Status']['State'] == READY_STATE
 
-  def _IsStepDone(self, step_id):
-    """Determine whether the step is done.
-
-    Args:
-      step_id: The step id to query.
-
-    Returns:
-      A dictionary describing the step if the step the step is complete,
-          None otherwise.
-
-    Raises:
-      JobSubmissionError if job fails.
-    """
-
-    cmd = self.cmd_prefix + ['emr', 'describe-step', '--cluster-id',
-                             self.cluster_id, '--step-id', step_id]
+  def _GetCompletedJob(self, job_id):
+    """See base class."""
+    cmd = self.cmd_prefix + [
+        'emr', 'describe-step', '--cluster-id', self.cluster_id, '--step-id',
+        job_id
+    ]
     stdout, _, _ = vm_util.IssueCommand(cmd)
     result = json.loads(stdout)
     state = result['Step']['Status']['State']
@@ -259,9 +265,12 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
       raise dpb_service.JobSubmissionError(
           result['Step']['Status']['FailureDetails'])
     if state == 'COMPLETED':
-      return result
-    else:
-      return None
+      pending_time = result['Step']['Status']['Timeline']['CreationDateTime']
+      start_time = result['Step']['Status']['Timeline']['StartDateTime']
+      end_time = result['Step']['Status']['Timeline']['EndDateTime']
+      return dpb_service.JobResult(
+          run_time=end_time - start_time,
+          pending_time=start_time - pending_time)
 
   def SubmitJob(self,
                 jarfile=None,
@@ -276,17 +285,6 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
                 job_type=None,
                 properties=None):
     """See base class."""
-    @vm_util.Retry(
-        timeout=EMR_TIMEOUT,
-        poll_interval=job_poll_interval,
-        fuzz=0,
-        retryable_exceptions=(EMRRetryableException,))
-    def WaitForStep(step_id):
-      result = self._IsStepDone(step_id)
-      if result is None:
-        raise EMRRetryableException('Step {0} not complete.'.format(step_id))
-      return result
-
     if job_arguments:
       # Escape commas in arguments
       job_arguments = (arg.replace(',', '\\,') for arg in job_arguments)
@@ -300,6 +298,7 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
       if jarfile and classname:
         raise ValueError('You cannot specify both jarfile and classname.')
       arg_list = []
+      # Order is important
       if classname:
         # EMR does not support passing classnames as jobs. Instead manually
         # invoke `hadoop CLASSNAME` using command-runner.jar
@@ -360,75 +359,14 @@ class AwsDpbEmr(dpb_service.BaseDpbService):
     stdout, _, _ = vm_util.IssueCommand(step_cmd)
     result = json.loads(stdout)
     step_id = result['StepIds'][0]
+    return self._WaitForJob(step_id, EMR_TIMEOUT, job_poll_interval)
 
-    result = WaitForStep(step_id)
-    pending_time = result['Step']['Status']['Timeline']['CreationDateTime']
-    start_time = result['Step']['Status']['Timeline']['StartDateTime']
-    end_time = result['Step']['Status']['Timeline']['EndDateTime']
-    return dpb_service.JobResult(
-        run_time=end_time - start_time,
-        pending_time=start_time - pending_time)
-
-  def SetClusterProperty(self):
-    pass
-
-  def CreateBucket(self, source_bucket):
-    """Create a bucket on S3 for use during the persistent data processing.
-
-    Args:
-      source_bucket: String, name of the bucket to create.
-    """
-    self.storage_service.MakeBucket(source_bucket)
-
-  def DeleteBucket(self, source_bucket):
-    """Delete a bucket on S3 used during the persistent data processing.
-
-    Args:
-      source_bucket: String, name of the bucket to delete.
-    """
-    self.storage_service.DeleteBucket(source_bucket)
-
-  def distributed_copy(self, source_location, destination_location):
+  def DistributedCopy(self, source, destination):
     """Method to copy data using a distributed job on the cluster."""
-    @vm_util.Retry(timeout=EMR_TIMEOUT,
-                   poll_interval=5, fuzz=0)
-    def WaitForStep(step_id):
-      result = self._IsStepDone(step_id)
-      if result is None:
-        raise EMRRetryableException('Step {0} not complete.'.format(step_id))
-      return result
-
-    job_arguments = ['s3-dist-cp', '--s3Endpoint=s3.amazonaws.com']
-    job_arguments.append('--src={}'.format(source_location))
-    job_arguments.append('--dest={}'.format(destination_location))
-    arg_spec = '[' + ','.join(job_arguments) + ']'
-
-    step_type_spec = 'Type=CUSTOM_JAR'
-    step_name = 'Name="S3DistCp"'
-    step_action_on_failure = 'ActionOnFailure=CONTINUE'
-    jar_spec = 'Jar=command-runner.jar'
-
-    step_list = [step_type_spec, step_name, step_action_on_failure, jar_spec]
-    step_list.append('Args=' + arg_spec)
-    step_string = ','.join(step_list)
-
-    step_cmd = self.cmd_prefix + ['emr',
-                                  'add-steps',
-                                  '--cluster-id',
-                                  self.cluster_id,
-                                  '--steps',
-                                  step_string]
-    stdout, _, _ = vm_util.IssueCommand(step_cmd)
-    result = json.loads(stdout)
-    step_id = result['StepIds'][0]
-    metrics = {}
-
-    result = WaitForStep(step_id)
-    pending_time = result['Step']['Status']['Timeline']['CreationDateTime']
-    start_time = result['Step']['Status']['Timeline']['StartDateTime']
-    end_time = result['Step']['Status']['Timeline']['EndDateTime']
-    metrics[dpb_service.WAITING] = start_time - pending_time
-    metrics[dpb_service.RUNTIME] = end_time - start_time
-    step_state = result['Step']['Status']['State']
-    metrics[dpb_service.SUCCESS] = step_state == 'COMPLETED'
-    return metrics
+    job_arguments = ['s3-dist-cp']
+    job_arguments.append('--src={}'.format(source))
+    job_arguments.append('--dest={}'.format(destination))
+    return self.SubmitJob(
+        'command-runner.jar',
+        job_arguments=job_arguments,
+        job_type=dpb_service.BaseDpbService.HADOOP_JOB_TYPE)

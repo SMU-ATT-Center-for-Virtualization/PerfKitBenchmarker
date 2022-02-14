@@ -14,9 +14,6 @@
 
 """Benchmark set specific functions and definitions."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 import copy
@@ -65,7 +62,7 @@ BENCHMARK_SETS = {
             'netperf',
             'object_storage_service',
             'ping',
-            'redis',
+            'redis_memtier',
             'speccpu2006',
             'sysbench',
             'unixbench',
@@ -98,7 +95,7 @@ BENCHMARK_SETS = {
             'mesh_network',
             'mongodb_ycsb',
             'ping',
-            'redis',
+            'redis_memtier',
             'sysbench',
             'unixbench',
         ]
@@ -168,7 +165,7 @@ BENCHMARK_SETS = {
             'unixbench',
             'hpcc',
             'cluster_boot',
-            'redis',
+            'redis_memtier',
             'cassandra_stress',
             'object_storage_service',
             'sysbench',
@@ -187,7 +184,7 @@ BENCHMARK_SETS = {
             'mesh_network',
             'mongodb_ycsb',
             'netperf',
-            'redis',
+            'redis_memtier',
             'sysbench',
         ]
     },
@@ -220,7 +217,7 @@ BENCHMARK_SETS = {
             'netperf',
             'oldisim',
             'ping',
-            'redis',
+            'redis_memtier',
             'silo',
             'sysbench',
             'unixbench',

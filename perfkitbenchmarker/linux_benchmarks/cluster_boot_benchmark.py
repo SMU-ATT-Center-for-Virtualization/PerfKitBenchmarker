@@ -40,8 +40,14 @@ cluster_boot:
           machine_type: n1-standard-2
           zone: us-central1-a
           boot_disk_type: pd-ssd
+        IBMCloud:
+          machine_type: cx2-2x4
+          zone: us-south-1
         Kubernetes:
           image: null
+        OpenStack:
+          machine_type: t1.small
+          zone: nova
       vm_count: null
   flags:
     # We don't want boot time samples to be affected from retrying, so don't

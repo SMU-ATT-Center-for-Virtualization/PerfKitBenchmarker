@@ -52,6 +52,7 @@ _DEFAULT_DDL = """
   ) PRIMARY KEY(id)
   """
 _DEFAULT_NODES = 1
+_FROZEN_NODE_COUNT = 1
 
 # Common decoder configuration option.
 _NONE_OK = {'default': None, 'none_ok': True}
@@ -249,7 +250,7 @@ class GcpSpannerInstance(resource.BaseResource):
     # Do not log error or warning when checking existence.
     _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     if retcode != 0:
-      logging.info('Could not found GCP Spanner instances %s.', self.name)
+      logging.info('Could not find GCP Spanner instance %s.', self.name)
       return False
 
     if instance_only:
@@ -262,7 +263,7 @@ class GcpSpannerInstance(resource.BaseResource):
     # Do not log error or warning when checking existence.
     _, _, retcode = cmd.Issue(suppress_warning=True, raise_on_failure=False)
     if retcode != 0:
-      logging.info('Could not found GCP Spanner database %s.', self.database)
+      logging.info('Could not find GCP Spanner database %s.', self.database)
       return False
 
     return True
@@ -280,6 +281,33 @@ class GcpSpannerInstance(resource.BaseResource):
       return None
     self._end_point = json.loads(stdout)
     return self._end_point
+
+  def _SetNodes(self, nodes: int) -> None:
+    """Sets the number of nodes on the Spanner instance."""
+    cmd = util.GcloudCommand(self, 'spanner', 'instances', 'update', self.name)
+    cmd.flags['nodes'] = nodes
+    cmd.Issue(raise_on_failure=True)
+
+  def _Restore(self) -> None:
+    """See base class.
+
+    Increases the number of nodes on the instance to the specified number.  See
+    https://cloud.google.com/spanner/pricing for Spanner pricing info.
+    """
+    self._SetNodes(self._nodes)
+
+  def _Freeze(self) -> None:
+    """See base class.
+
+    Lowers the number of nodes on the instance to one. Note there are
+    restrictions to being able to lower the number of nodes on an instance. See
+    https://cloud.google.com/spanner/docs/create-manage-instances.
+    """
+    self._SetNodes(_FROZEN_NODE_COUNT)
+
+  def _UpdateTimeout(self, timeout_minutes: int) -> None:
+    """See base class."""
+    pass
 
 
 def GetSpannerClass(

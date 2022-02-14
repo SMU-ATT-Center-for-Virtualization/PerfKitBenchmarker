@@ -79,6 +79,7 @@ FLAGS = flags.FLAGS
 
 TYPE_2_PROVIDER = dict([('athena', 'aws'), ('redshift', 'aws'),
                         ('spectrum', 'aws'), ('snowflake_aws', 'aws'),
+                        ('snowflakeexternal_aws', 'aws'),
                         ('bigquery', 'gcp'), ('endor', 'gcp'),
                         ('bqfederated', 'gcp'),
                         ('azuresqldatawarehouse', 'azure')])
@@ -87,6 +88,7 @@ TYPE_2_MODULE = dict([
     ('redshift', 'perfkitbenchmarker.providers.aws.redshift'),
     ('spectrum', 'perfkitbenchmarker.providers.aws.spectrum'),
     ('snowflake_aws', 'perfkitbenchmarker.providers.aws.snowflake'),
+    ('snowflakeexternal_aws', 'perfkitbenchmarker.providers.aws.snowflake'),
     ('bigquery', 'perfkitbenchmarker.providers.gcp.bigquery'),
     ('endor', 'perfkitbenchmarker.providers.gcp.bigquery'),
     ('bqfederated', 'perfkitbenchmarker.providers.gcp.bigquery'),
@@ -110,10 +112,14 @@ class EdwClientInterface(object):
   Attributes:
     client_vm: An instance of virtual_machine.BaseVirtualMachine used to
       interface with the edw service.
+    whitelist_ip: The IP to whitelist.
   """
 
   def __init__(self):
     self.client_vm = None
+
+    # set by derived classes
+    self.whitelist_ip = None
 
   def SetProvisionedAttributes(self, benchmark_spec):
     """Sets any attributes that were unknown during initialization."""

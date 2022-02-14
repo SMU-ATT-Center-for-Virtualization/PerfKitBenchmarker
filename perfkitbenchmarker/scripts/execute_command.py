@@ -1,4 +1,3 @@
-# Lint as: python2, python3
 # Copyright 2015 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +24,7 @@ This command will fail if the status file cannot be successfully locked.
 To await completion, "wait_for_command.py" acquires a shared lock on the
 status file, which blocks until the process completes.
 
-*Runs on the guest VM. Supports Python 2.6, 2.7, and 3.x.*
+*Runs on the guest VM. Supports Python 3.x.*
 """
 
 import fcntl

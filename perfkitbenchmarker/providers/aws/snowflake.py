@@ -15,7 +15,7 @@
 
 import copy
 import json
-from typing import Dict, List, Text
+from typing import Dict, List, Text, Tuple
 from absl import flags
 from perfkitbenchmarker import edw_service
 from perfkitbenchmarker.providers import aws
@@ -76,7 +76,7 @@ class JdbcClientInterface(edw_service.EdwClientInterface):
     self.client_vm.InstallPreprovisionedPackageData(
         package_name, ['snowflake-jdbc-client-2.0.jar'], '')
 
-  def ExecuteQuery(self, query_name: Text) -> (float, Dict[str, str]):
+  def ExecuteQuery(self, query_name: Text) -> Tuple[float, Dict[str, str]]:
     """Executes a query and returns performance details.
 
     Args:
@@ -186,5 +186,22 @@ class Snowflake(edw_service.EdwService):
     basic_data['warehouse'] = self.warehouse
     basic_data['database'] = self.database
     basic_data['schema'] = self.schema
+    basic_data.update(self.client_interface.GetMetadata())
+    return basic_data
+
+
+class Snowflakeexternal(Snowflake):
+  """Class representing Snowflake External Warehouses."""
+
+  SERVICE_TYPE = 'snowflakeexternal_aws'
+
+  def GetMetadata(self) -> Dict[str, str]:
+    """Return a dictionary of the metadata for the Snowflake External service.
+
+    Returns:
+      A dictionary set to service details.
+    """
+    basic_data = super(Snowflakeexternal, self).GetMetadata()
+    basic_data['edw_service_type'] = Snowflakeexternal.SERVICE_TYPE
     basic_data.update(self.client_interface.GetMetadata())
     return basic_data

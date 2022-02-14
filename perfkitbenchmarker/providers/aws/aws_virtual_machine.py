@@ -18,9 +18,6 @@ All VM specifics are self-contained and the class provides methods to
 operate on the VM: boot, shutdown, etc.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import base64
 import collections
@@ -48,9 +45,6 @@ from perfkitbenchmarker.providers.aws import util
 from six.moves import range
 
 FLAGS = flags.FLAGS
-flags.DEFINE_enum('aws_credit_specification', None,
-                  ['CpuCredits=unlimited', 'CpuCredits=standard'],
-                  'Credit specification for burstable vms.')
 
 HVM = 'hvm'
 PV = 'paravirtual'
@@ -81,7 +75,7 @@ AWS_INITIATED_SPOT_TERMINAL_STATUSES = frozenset(
 USER_INITIATED_SPOT_TERMINAL_STATUSES = frozenset(
     ['request-canceled-and-instance-running', 'instance-terminated-by-user'])
 
-ARM_PROCESSOR_PREFIXES = ['a1', 'm6g', 'c6g', 'r6g', 'm6gd']
+ARM_PROCESSOR_PREFIXES = ['a1', 'm6g', 'c6g', 'r6g']
 
 # Processor architectures
 ARM = 'arm64'
@@ -119,7 +113,6 @@ _MACHINE_TYPE_PREFIX_TO_HOST_ARCH = {
     'a1': 'cortex-a72',
     'c6g': 'graviton2',
     'm6g': 'graviton2',
-    'm6gd': 'graviton2',
     'r6g': 'graviton2',
 }
 
@@ -244,7 +237,7 @@ def IsPlacementGroupCompatible(machine_type):
 
 def GetProcessorArchitecture(machine_type):
   """Returns the processor architecture of the VM."""
-  prefix = machine_type.split('.')[0]
+  prefix = re.split(r'[dn]?\.', machine_type)[0]
   if prefix in ARM_PROCESSOR_PREFIXES:
     return ARM
   else:
@@ -513,6 +506,7 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
     self.use_dedicated_host = vm_spec.use_dedicated_host
     self.num_vms_per_host = vm_spec.num_vms_per_host
     self.use_spot_instance = vm_spec.use_spot_instance
+    self.preemptible = self.use_spot_instance
     self.spot_price = vm_spec.spot_price
     self.spot_block_duration_minutes = vm_spec.spot_block_duration_minutes
     self.boot_disk_size = vm_spec.boot_disk_size
@@ -549,6 +543,7 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
           'Tenancy=host is not supported for Spot Instances')
     self.allocation_id = None
     self.association_id = None
+    self.aws_tags = {}
 
   @property
   def host_list(self):
@@ -685,10 +680,11 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
       self.InstallPackages('curl')
       url = _EFA_URL.format(version=FLAGS.aws_efa_version)
       tarfile = posixpath.basename(url)
-      self.RemoteCommand(f'curl -O {url}; tar -xvzf {tarfile}')
+      self.RemoteCommand(f'curl -O {url}; tar -xzf {tarfile}')
       self._InstallEfa()
       # Run test program to confirm EFA working
-      self.RemoteCommand('cd aws-efa-installer; ./efa_test.sh')
+      self.RemoteCommand('cd aws-efa-installer; '
+                         'PATH=${PATH}:/opt/amazon/efa/bin ./efa_test.sh')
 
   def _ConfigureElasticIp(self, instance):
     """Create and associate Elastic IP.
@@ -780,9 +776,11 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
                                          self.boot_disk_size,
                                          self.image,
                                          self.region)
-    tags = {}
-    tags.update(self.vm_metadata)
-    tags.update(util.MakeDefaultTags())
+    if not self.aws_tags:
+      # Set tags for the AWS VM. If we are retrying the create, we have to use
+      # the same tags from the previous call.
+      self.aws_tags.update(self.vm_metadata)
+      self.aws_tags.update(util.MakeDefaultTags())
     create_cmd = util.AWS_PREFIX + [
         'ec2',
         'run-instances',
@@ -792,7 +790,19 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
         '--instance-type=%s' % self.machine_type,
         '--key-name=%s' % AwsKeyFileManager.GetKeyNameForRun(),
         '--tag-specifications=%s' %
-        util.FormatTagSpecifications('instance', tags)]
+        util.FormatTagSpecifications('instance', self.aws_tags)]
+    if FLAGS.disable_smt:
+      query_cmd = util.AWS_PREFIX + [
+          'ec2',
+          'describe-instance-types',
+          '--instance-types',
+          self.machine_type,
+          '--query',
+          'InstanceTypes[0].VCpuInfo.DefaultCores'
+      ]
+      stdout, _, retcode = vm_util.IssueCommand(query_cmd)
+      cores = int(json.loads(stdout))
+      create_cmd.append(f'--cpu-options=CoreCount={cores},ThreadsPerCore=1')
     if FLAGS.aws_efa:
       efas = ['--network-interfaces']
       for device_index in range(FLAGS.aws_efa_count):
@@ -876,6 +886,11 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
       raise errors.Benchmarks.QuotaFailure(stderr)
     if 'RequestLimitExceeded' in stderr and FLAGS.retry_on_rate_limited:
       raise errors.Resource.RetryableCreationError(stderr)
+    # When launching more than 1 VM into the same placement group, there is an
+    # occasional error that the placement group has already been used in a
+    # separate zone. Retrying fixes this error.
+    if 'InvalidPlacementGroup.InUse' in stderr:
+      raise errors.Resource.RetryableCreationError(stderr)
     if retcode:
       raise errors.Resource.CreationError(
           'Failed to create VM: %s return code: %s' % (retcode, stderr))
@@ -910,9 +925,7 @@ class AwsVirtualMachine(virtual_machine.BaseVirtualMachine):
                               f'--region={self.region}',
                               f'--allocation-id={self.allocation_id}'])
 
-  def UpdateInterruptibleVmStatus(self):
-    if self.spot_early_termination:
-      return
+  def _UpdateInterruptibleVmStatusThroughApi(self):
     if hasattr(self, 'spot_instance_request_id'):
       describe_cmd = util.AWS_PREFIX + [
           '--region=%s' % self.region,
@@ -1161,10 +1174,10 @@ class Ubuntu1604BasedAwsVirtualMachine(UbuntuBasedAwsVirtualMachine,
                                        linux_virtual_machine.Ubuntu1604Mixin):
   IMAGE_NAME_FILTER = 'ubuntu/images/*/ubuntu-xenial-16.04-*64-server-20*'
 
-
-class Ubuntu1710BasedAwsVirtualMachine(UbuntuBasedAwsVirtualMachine,
-                                       linux_virtual_machine.Ubuntu1710Mixin):
-  IMAGE_NAME_FILTER = 'ubuntu/images/*/ubuntu-artful-17.10-*64-server-20*'
+  def _InstallEfa(self):
+    super(Ubuntu1604BasedAwsVirtualMachine, self)._InstallEfa()
+    self.Reboot()
+    self.WaitForBootCompletion()
 
 
 class Ubuntu1804BasedAwsVirtualMachine(UbuntuBasedAwsVirtualMachine,
@@ -1191,18 +1204,6 @@ class AmazonLinux2BasedAwsVirtualMachine(
   IMAGE_OWNER = AMAZON_LINUX_IMAGE_PROJECT
 
 
-class AmazonLinux1BasedAwsVirtualMachine(
-    AwsVirtualMachine, linux_virtual_machine.AmazonLinux1Mixin):
-  """Class with configuration for AWS Amazon Linux 1 virtual machines."""
-  IMAGE_NAME_FILTER = 'amzn-ami-*-*-*'
-  IMAGE_OWNER = AMAZON_LINUX_IMAGE_PROJECT
-  # IMAGE_NAME_REGEX tightens up the image filter for Amazon Linux to avoid
-  # non-standard Amazon Linux images. This fixes a bug in which we were
-  # selecting "amzn-ami-hvm-BAD1.No.NO.DONOTUSE-x86_64-gp2" as the latest image.
-  IMAGE_NAME_REGEX = (
-      r'^amzn-ami-{virt_type}-\d+\.\d+\.\d+.\d+-{architecture}-{disk_type}$')
-
-
 class Rhel7BasedAwsVirtualMachine(AwsVirtualMachine,
                                   linux_virtual_machine.Rhel7Mixin):
   """Class with configuration for AWS RHEL 7 virtual machines."""
@@ -1227,8 +1228,8 @@ class CentOs7BasedAwsVirtualMachine(AwsVirtualMachine,
   """Class with configuration for AWS CentOS 7 virtual machines."""
   # Documentation on finding the CentOS 7 image:
   # https://wiki.centos.org/Cloud/AWS#x86_64
-  IMAGE_NAME_FILTER = 'CentOS*Linux*7*ENA*'
-  IMAGE_PRODUCT_CODE_FILTER = 'aw0evgkw8e5c1q413zgy5pjce'
+  IMAGE_NAME_FILTER = 'CentOS 7*'
+  IMAGE_OWNER = CENTOS_IMAGE_PROJECT
   DEFAULT_USER_NAME = 'centos'
 
   def _InstallEfa(self):

@@ -1,4 +1,3 @@
-# Lint as: python2, python3
 # Copyright 2017 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,10 +24,8 @@ If passed the path to the status file, but not the stdout and stderr files,
 this script will block until command completion, then print
 'Command finished.' before returning with status 0.
 
-*Runs on the guest VM. Supports Python 2.6, 2.7, and 3.x.*
+*Runs on the guest VM. Supports Python 3.x.*
 """
-
-from __future__ import print_function
 
 import errno
 import fcntl
@@ -43,6 +40,16 @@ import time
 WAIT_TIMEOUT_IN_SEC = 120.0
 WAIT_SLEEP_IN_SEC = 5.0
 RETRYABLE_SSH_RETCODE = 255
+
+
+def signal_handler(signum, frame):
+  # Pre python3.5 the interruption of a system call would automatically raise
+  # an InterruptedError exception, but since PEP 475 was implemented for fcntl
+  # interruptions are automatically retried; this implementation depends on
+  # interrupting the attempt to acquire a lock on the status file, so we can
+  # ensure this in all python3 versions by raising it explicitly in the signal
+  # handler.
+  raise InterruptedError()
 
 
 def main():
@@ -91,16 +98,25 @@ def main():
       print('WARNING: file doesn\'t exist, retrying: %s' % e, file=sys.stderr)
       time.sleep(WAIT_SLEEP_IN_SEC)
 
-  signal.signal(signal.SIGALRM, lambda signum, frame: None)
+  # Set a signal handler to raise an InterruptedError on SIGALRM (this is no
+  # longer done automatically after PEP 475).
+  signal.signal(signal.SIGALRM, signal_handler)
+  # Send a SIGALRM signal after WAIT_TIMEOUT_IN_SEC seconds
   signal.alarm(int(WAIT_TIMEOUT_IN_SEC))
   with open(options.status, 'r') as status:
     try:
+      # If we can acquire the lock on status, the command we're waiting on is
+      # done; if we can't acquire it for the next WAIT_TIMEOUT_IN_SEC seconds
+      # this attempt will be interrupted and we'll catch an InterruptedError.
       fcntl.lockf(status, fcntl.LOCK_SH)
-    except IOError as e:
-      if e.errno == errno.EINTR:
-        print('Wait timed out. This will be retried with a subsequent wait.')
-        return 0
-      elif e.errno == errno.ECONNREFUSED:
+    except InterruptedError:
+      print('Wait timed out. This will be retried with a subsequent wait.')
+      return 0
+    # OSError and IOError have similar interfaces, and later versions of fcntl
+    # will raise OSError where earlier versions raised IOError--we catch both
+    # here for compatibility.
+    except (OSError, IOError) as e:
+      if e.errno == errno.ECONNREFUSED:
         print('Connection refused during wait. '
               'This will be retried with a subsequent wait.')
         return 0
@@ -116,8 +132,10 @@ def main():
     print('Command finished.')
     return 0
 
-  with open(options.stdout, 'r') as stdout:
-    with open(options.stderr, 'r') as stderr:
+  # Some commands write out non UTF-8 control characters. Replace them with '?'
+  # to make Python 3.6+ happy.
+  with open(options.stdout, 'r', errors='backslashreplace') as stdout:
+    with open(options.stderr, 'r', errors='backslashreplace') as stderr:
       if return_code_str:
         return_code = int(return_code_str)
       else:

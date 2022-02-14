@@ -15,8 +15,14 @@
 
 """Module containing build tools installation and cleanup functions."""
 import logging
+from absl import flags
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import os_types
+
+FLAGS = flags.FLAGS
+flags.DEFINE_string('gcc_version', None, 'Version of gcc to use. Benchmarks '
+                    'that utilize gcc compilation should ensure reinstallation '
+                    'of GCC. Default is set by the OS package manager.')
 
 
 def YumInstall(vm):
@@ -27,14 +33,23 @@ def YumInstall(vm):
 def AptInstall(vm):
   """Installs build tools on the VM."""
   vm.InstallPackages('build-essential git libtool autoconf automake')
+  if FLAGS.gcc_version:
+    Reinstall(vm, version=FLAGS.gcc_version)
 
 
 def GetVersion(vm, pkg):
-  """Get version of package."""
-  # TODO(user): Add gcc version to all samples similar to lscpu/proccpu.
+  """Get version of package using -dumpversion."""
   out, _ = vm.RemoteCommand(
       '{pkg} -dumpversion'.format(pkg=pkg), ignore_failure=True)
   return out.rstrip()
+
+
+def GetVersionInfo(vm, pkg):
+  """Get compiler version info for package using --version."""
+  out, _ = vm.RemoteCommand(
+      '{pkg} --version'.format(pkg=pkg), ignore_failure=True)
+  # return first line of pkg --version
+  return out.splitlines()[0] if out else None
 
 
 def Reinstall(vm, version='4.7'):
@@ -49,8 +64,7 @@ def Reinstall(vm, version='4.7'):
   # TODO(user): Make this work on yum based systems.
   if vm.BASE_OS_TYPE != os_types.DEBIAN:
     raise errors.Error('Updating GCC only works on Debian based systems.')
-  vm.RemoteCommand('sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y')
-  vm.RemoteCommand('sudo apt-get update')
+  vm.Install('ubuntu_toolchain')
   for pkg in ('gcc', 'gfortran', 'g++'):
     version_string = GetVersion(vm, pkg)
     if version in version_string:

@@ -13,63 +13,89 @@
 # limitations under the License.
 
 
-"""Module containing redis enterprise installation and cleanup functions."""
+"""Module containing redis enterprise installation and cleanup functions.
+
+TODO(user): Flags should be unified with memtier.py.
+"""
 
 import json
 import logging
 import posixpath
 from absl import flags
+from perfkitbenchmarker import data
 from perfkitbenchmarker import errors
 from perfkitbenchmarker import os_types
 from perfkitbenchmarker import sample
 from perfkitbenchmarker import vm_util
 
 FLAGS = flags.FLAGS
-flags.DEFINE_boolean('enterprise_redis_tune_on_startup', True,
-                     'Whether to tune core config during startup.')
-flags.DEFINE_integer('enterprise_redis_proxy_threads', 24,
-                     'Number of redis proxy threads to use.')
-flags.DEFINE_integer('enterprise_redis_shard_count', 6,
-                     'Number of redis shard. Each shard is a redis thread.')
-flags.DEFINE_integer('enterprise_redis_load_records', 1000000,
-                     'Number of keys to pre-load into Redis.')
-flags.DEFINE_integer('enterprise_redis_run_records', 1000000,
-                     'Number of requests per loadgen client to send to the '
-                     'Redis server.')
-flags.DEFINE_integer('enterprise_redis_pipeline', 9,
-                     'Number of pipelines to use.')
-flags.DEFINE_integer('enterprise_redis_loadgen_clients', 24,
-                     'Number of clients per loadgen vm.')
-flags.DEFINE_integer('enterprise_redis_max_threads', 40,
-                     'Maximum number of memtier threads to use.')
-flags.DEFINE_integer('enterprise_redis_min_threads', 18,
-                     'Minimum number of memtier threads to use.')
-flags.DEFINE_integer('enterprise_redis_thread_increment', 1,
-                     'Number of memtier threads to increment by.')
-flags.DEFINE_integer('enterprise_redis_latency_threshold', 1100,
-                     'The latency threshold in microseconds '
-                     'until the test stops.')
-flags.DEFINE_boolean('enterprise_redis_pin_workers', False,
-                     'Whether to pin the proxy threads after startup.')
-flags.DEFINE_list('enterprise_redis_disable_cpu_ids', None,
-                  'List of cpus to disable by id.')
+_LICENSE_PATH = flags.DEFINE_string(
+    'enterprise_redis_license_path', None,
+    'If none, defaults to the local data directory.')
+_TUNE_ON_STARTUP = flags.DEFINE_boolean(
+    'enterprise_redis_tune_on_startup', True,
+    'Whether to tune core config during startup.')
+_PROXY_THREADS = flags.DEFINE_integer(
+    'enterprise_redis_proxy_threads', 24,
+    'Number of redis proxy threads to use.')
+_SHARDS = flags.DEFINE_integer(
+    'enterprise_redis_shard_count', 6,
+    'Number of redis shard. Each shard is a redis thread.')
+_LOAD_RECORDS = flags.DEFINE_integer(
+    'enterprise_redis_load_records', 1000000,
+    'Number of keys to pre-load into Redis.')
+_RUN_RECORDS = flags.DEFINE_integer(
+    'enterprise_redis_run_records', 1000000,
+    'Number of requests per loadgen client to send to the '
+    'Redis server.')
+_PIPELINES = flags.DEFINE_integer(
+    'enterprise_redis_pipeline', 9,
+    'Number of pipelines to use.')
+_LOADGEN_CLIENTS = flags.DEFINE_integer(
+    'enterprise_redis_loadgen_clients', 24,
+    'Number of clients per loadgen vm.')
+_MAX_THREADS = flags.DEFINE_integer(
+    'enterprise_redis_max_threads', 40,
+    'Maximum number of memtier threads to use.')
+_MIN_THREADS = flags.DEFINE_integer(
+    'enterprise_redis_min_threads', 18,
+    'Minimum number of memtier threads to use.')
+_THREAD_INCREMENT = flags.DEFINE_integer(
+    'enterprise_redis_thread_increment', 1,
+    'Number of memtier threads to increment by.')
+_LATENCY_THRESHOLD = flags.DEFINE_integer(
+    'enterprise_redis_latency_threshold', 1100,
+    'The latency threshold in microseconds '
+    'until the test stops.')
+_PIN_WORKERS = flags.DEFINE_boolean(
+    'enterprise_redis_pin_workers', False,
+    'Whether to pin the proxy threads after startup.')
+_DISABLE_CPU_IDS = flags.DEFINE_list(
+    'enterprise_redis_disable_cpu_ids', None,
+    'List of cpus to disable by id.')
+_DATA_SIZE = flags.DEFINE_integer(
+    'enterprise_redis_data_size_bytes', 100,
+    'The size of the data to write to redis enterprise.')
 
+_VERSION = '6.0.12-58'
 _PACKAGE_NAME = 'redis_enterprise'
 _LICENSE = 'enterprise_redis_license'
 _WORKING_DIR = '~/redislabs'
-_RHEL_TAR = 'redislabs-5.4.2-24-rhel7-x86_64.tar'
-_XENIAL_TAR = 'redislabs-5.4.2-24-xenial-amd64.tar'
-_BIONIC_TAR = 'redislabs-5.4.2-24-bionic-amd64.tar'
+_RHEL_TAR = f'redislabs-{_VERSION}-rhel7-x86_64.tar'
+_XENIAL_TAR = f'redislabs-{_VERSION}-xenial-amd64.tar'
+_BIONIC_TAR = f'redislabs-{_VERSION}-bionic-amd64.tar'
 _USERNAME = 'user@google.com'
+_ONE_KILOBYTE = 1000
 PREPROVISIONED_DATA = {
+    # These checksums correspond to version 6.0.12-58. To update, run
+    # 'sha256sum <redislabs-{VERSION}-rhel7-x86_64.tar>' and replace the values
+    # below.
     _RHEL_TAR:
-        '8db83074b3e4e6de9c249ce34b6bb899ed158a6a4801f36c530e79bdb97a4c20',
+        '743995f4ddf797cb1286dee4d51171df4c376530b97581efae63b0ead692fc2f',
     _XENIAL_TAR:
-        'ef2da8b5eaa02b53488570392df258c0d5d3890a9085c2495aeb5c96f336e639',
+        'a7802b059dce6512be249462be43120a5fc156125ff0151ce66463e2abf52a6c',
     _BIONIC_TAR:
-        'ef0c58d6d11683aac07d3f2cae6b9544cb53064c9f7a7419d63b6d14cd858d53',
-    _LICENSE:
-        'd336e9fb8574519ab90a54155727c5c73dda122d906a617368bdfa6a32b03a42',
+        'a50accab0e23ecd9b0544f4810240dadeac73e566c1f11f573186bd824edba1e',
 }
 
 
@@ -90,8 +116,16 @@ def _GetTarName():
 def Install(vm):
   """Installs Redis Enterprise package on the VM."""
   vm.InstallPackages('wget')
-  vm.InstallPreprovisionedPackageData(_PACKAGE_NAME,
-                                      [_GetTarName(), _LICENSE],
+  vm.RemoteCommand(f'mkdir -p {_WORKING_DIR}')
+
+  # Check for the license in the data directory if a path isn't specified.
+  license_path = _LICENSE_PATH.value
+  if not license_path:
+    license_path = data.ResourcePath(_LICENSE)
+  vm.PushFile(license_path, posixpath.join(_WORKING_DIR, _LICENSE))
+
+  # Check for the tarfile in the data directory first.
+  vm.InstallPreprovisionedPackageData(_PACKAGE_NAME, [_GetTarName()],
                                       _WORKING_DIR)
   vm.RemoteCommand('cd {dir} && sudo tar xvf {tar}'.format(
       dir=_WORKING_DIR, tar=_GetTarName()))
@@ -105,7 +139,7 @@ def Install(vm):
         'sudo ln -s /run/systemd/resolve/resolv.conf /etc/resolv.conf')
     vm.RemoteCommand('sudo service systemd-resolved restart')
   install_cmd = './install.sh -y'
-  if not FLAGS.enterprise_redis_tune_on_startup:
+  if not _TUNE_ON_STARTUP.value:
     install_cmd = 'CONFIG_systune=no ./install.sh -y -n'
   vm.RemoteCommand('cd {dir} && sudo {install}'.format(
       dir=_WORKING_DIR, install=install_cmd))
@@ -126,7 +160,7 @@ def CreateCluster(vm):
 
 def OfflineCores(vm):
   """Offline specific cores."""
-  for cpu_id in FLAGS.enterprise_redis_disable_cpu_ids or []:
+  for cpu_id in _DISABLE_CPU_IDS.value or []:
     vm.RemoteCommand('sudo bash -c '
                      '"echo 0 > /sys/devices/system/cpu/cpu%s/online"' % cpu_id)
 
@@ -138,7 +172,7 @@ def TuneProxy(vm):
       'proxy all '
       'max_threads {proxy_threads} '
       'threads {proxy_threads} '.format(
-          proxy_threads=str(FLAGS.enterprise_redis_proxy_threads)))
+          proxy_threads=str(_PROXY_THREADS.value)))
   vm.RemoteCommand('sudo /opt/redislabs/bin/dmc_ctl restart')
 
 
@@ -150,11 +184,11 @@ def PinWorkers(vm):
   Args:
     vm: The VM with the Redis workers to pin.
   """
-  if not FLAGS.enterprise_redis_pin_workers:
+  if not _PIN_WORKERS.value:
     return
 
   numa_nodes = vm.CheckLsCpu().numa_node_count
-  proxies_per_node = FLAGS.enterprise_redis_proxy_threads // numa_nodes
+  proxies_per_node = _PROXY_THREADS.value // numa_nodes
   for node in range(numa_nodes):
     node_cpu_list = vm.RemoteCommand(
         'cat /sys/devices/system/node/node%d/cpulist' % node)[0].strip()
@@ -177,17 +211,17 @@ def SetUpCluster(vm, redis_port):
   """Set up the details of the cluster."""
   content = {
       'name': 'redisdb',
-      'memory_size': 10000000000,
+      'memory_size': int(vm.total_memory_kb * _ONE_KILOBYTE / 2),
       'type': 'redis',
       'proxy_policy': 'all-master-shards',
       'port': redis_port,
       'sharding': False,
       'authentication_redis_pass': FLAGS.run_uri,
   }
-  if FLAGS.enterprise_redis_shard_count > 1:
+  if _SHARDS.value > 1:
     content.update({
         'sharding': True,
-        'shards_count': FLAGS.enterprise_redis_shard_count,
+        'shards_count': _SHARDS.value,
         'shards_placement': 'sparse',
         'oss_cluster': True,
         'shard_key_regex':
@@ -206,7 +240,7 @@ def SetUpCluster(vm, redis_port):
 def WaitForClusterUp(vm, redis_port):
   """Waits for the Redis Enterprise cluster to respond to commands."""
   stdout, _ = vm.RemoteCommand(
-      '/opt/redislabs/bin/redis-cli '
+      'sudo /opt/redislabs/bin/redis-cli '
       '-h localhost '
       '-p {port} '
       '-a {password} '
@@ -219,24 +253,23 @@ def WaitForClusterUp(vm, redis_port):
 
 def LoadCluster(vm, redis_port):
   """Load the cluster before performing tests."""
-  vm.RemoteCommand(
-      '/opt/redislabs/bin/memtier_benchmark '
+  command = (
+      'sudo /opt/redislabs/bin/memtier_benchmark '
       '-s localhost '
-      '-a {password} '
-      '-p {port} '
+      f'-a {FLAGS.run_uri} '
+      f'-p {str(redis_port)} '
       '-t 1 '  # Set -t and -c to 1 to avoid duplicated work in writing the same
       '-c 1 '  # key/value pairs repeatedly.
       '--ratio 1:0 '
       '--pipeline 100 '
-      '-d 100 '
+      f'-d {str(_DATA_SIZE.value)} '
       '--key-pattern S:S '
       '--key-minimum 1 '
-      '--key-maximum {load_records} '
-      '-n allkeys '
-      '--cluster-mode '.format(
-          password=FLAGS.run_uri,
-          port=str(redis_port),
-          load_records=str(FLAGS.enterprise_redis_load_records)))
+      f'--key-maximum {str(_LOAD_RECORDS.value)} '
+      '-n allkeys ')
+  if _SHARDS.value > 1:
+    command += '--cluster-mode'
+  vm.RemoteCommand(command)
 
 
 def BuildRunCommand(redis_vm, threads, port):
@@ -253,27 +286,21 @@ def BuildRunCommand(redis_vm, threads, port):
   if threads == 0:
     return None
 
-  return ('/opt/redislabs/bin/memtier_benchmark '
-          '-s {ip_address} '
-          '-a {password} '
-          '-p {port} '
-          '-t {threads} '
-          '--ratio 1:1 '
-          '--pipeline {pipeline} '
-          '-c {clients} '
-          '-d 100 '
-          '--key-minimum 1 '
-          '--key-maximum {key_maximum} '
-          '-n {run_records} '
-          '--cluster-mode '.format(
-              ip_address=redis_vm.internal_ip,
-              password=FLAGS.run_uri,
-              port=str(port),
-              threads=str(threads),
-              pipeline=str(FLAGS.enterprise_redis_pipeline),
-              clients=str(FLAGS.enterprise_redis_loadgen_clients),
-              key_maximum=str(FLAGS.enterprise_redis_load_records),
-              run_records=str(FLAGS.enterprise_redis_run_records)))
+  result = ('sudo /opt/redislabs/bin/memtier_benchmark '
+            f'-s {redis_vm.internal_ip} '
+            f'-a {FLAGS.run_uri} '
+            f'-p {str(port)} '
+            f'-t {str(threads)} '
+            '--ratio 1:1 '
+            f'--pipeline {str(_PIPELINES.value)} '
+            f'-c {str(_LOADGEN_CLIENTS.value)} '
+            f'-d {str(_DATA_SIZE.value)} '
+            '--key-minimum 1 '
+            f'--key-maximum {str(_LOAD_RECORDS.value)} '
+            f'-n {_RUN_RECORDS.value} ')
+  if _SHARDS.value > 1:
+    result += '--cluster-mode'
+  return result
 
 
 def Run(redis_vm, load_vms, redis_port):
@@ -294,12 +321,12 @@ def Run(redis_vm, load_vms, redis_port):
   """
   results = []
   cur_max_latency = 0.0
-  latency_threshold = FLAGS.enterprise_redis_latency_threshold
-  threads = FLAGS.enterprise_redis_min_threads
+  latency_threshold = _LATENCY_THRESHOLD.value
+  threads = _MIN_THREADS.value
+  max_threads = _MAX_THREADS.value
   max_throughput_for_completion_latency_under_1ms = 0.0
 
-  while (cur_max_latency < latency_threshold
-         and threads <= FLAGS.enterprise_redis_max_threads):
+  while (cur_max_latency < latency_threshold and threads <= max_threads):
     load_command = BuildRunCommand(redis_vm, threads, redis_port)
     # 1min for throughput to stabilize and 10sec of data.
     measurement_command = (
@@ -320,17 +347,20 @@ def Run(redis_vm, load_vms, redis_port):
       cur_max_latency = max(cur_max_latency, latency)
       sample_metadata = interval
       sample_metadata['redis_tune_on_startup'] = (
-          FLAGS.enterprise_redis_tune_on_startup)
+          _TUNE_ON_STARTUP.value)
       sample_metadata['redis_pipeline'] = (
-          FLAGS.enterprise_redis_pipeline)
+          _PIPELINES.value)
       sample_metadata['threads'] = threads
-      sample_metadata['shard_count'] = FLAGS.enterprise_redis_shard_count
+      sample_metadata['shard_count'] = _SHARDS.value
       sample_metadata['redis_proxy_threads'] = (
-          FLAGS.enterprise_redis_proxy_threads)
+          _PROXY_THREADS.value)
       sample_metadata['redis_loadgen_clients'] = (
-          FLAGS.enterprise_redis_loadgen_clients)
-      sample_metadata['pin_workers'] = FLAGS.enterprise_redis_pin_workers
-      sample_metadata['disable_cpus'] = FLAGS.enterprise_redis_disable_cpu_ids
+          _LOADGEN_CLIENTS.value)
+      sample_metadata['pin_workers'] = _PIN_WORKERS.value
+      sample_metadata['disable_cpus'] = _DISABLE_CPU_IDS.value
+      sample_metadata['redis_enterprise_version'] = _VERSION
+      sample_metadata['memtier_data_size'] = _DATA_SIZE.value
+      sample_metadata['memtier_key_maximum'] = _LOAD_RECORDS.value
       results.append(sample.Sample('throughput', throughput, 'ops/s',
                                    sample_metadata))
       if latency < 1000:
@@ -340,7 +370,7 @@ def Run(redis_vm, load_vms, redis_port):
       logging.info('Threads : %d  (%f, %f) < %f', threads, throughput, latency,
                    latency_threshold)
 
-    threads += FLAGS.enterprise_redis_thread_increment
+    threads += _THREAD_INCREMENT.value
 
   if cur_max_latency >= 1000:
     results.append(sample.Sample(

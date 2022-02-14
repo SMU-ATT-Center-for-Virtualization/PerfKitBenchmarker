@@ -20,7 +20,6 @@ at https://cloud.google.com/dataproc/
 import datetime
 import json
 import logging
-
 from absl import flags
 from perfkitbenchmarker import dpb_service
 from perfkitbenchmarker import errors
@@ -32,16 +31,6 @@ from perfkitbenchmarker.providers.gcp import util
 FLAGS = flags.FLAGS
 flags.DEFINE_string('dpb_dataproc_image_version', None,
                     'The image version to use for the cluster.')
-flags.DEFINE_integer('dpb_dataproc_distcp_num_maps', None,
-                     'Number of maps to copy data.')
-
-SPARK_SAMPLE_LOCATION = ('file:///usr/lib/spark/examples/jars/'
-                         'spark-examples.jar')
-
-TESTDFSIO_JAR_LOCATION = ('file:///usr/lib/hadoop-mapreduce/'
-                          'hadoop-mapreduce-client-jobclient.jar')
-
-TESTDFSIO_PROGRAM = 'TestDFSIO'
 
 disk_to_hdfs_map = {
     'pd-standard': 'HDD',
@@ -58,7 +47,6 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
 
   CLOUD = gcp.CLOUD
   SERVICE_TYPE = 'dataproc'
-  PERSISTENT_FS_PREFIX = 'gs://'
 
   def __init__(self, dpb_service_spec):
     super(GcpDpbDataproc, self).__init__(dpb_service_spec)
@@ -72,9 +60,10 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
     self.region = self.dpb_service_zone.rsplit('-', 1)[0]
     self.storage_service = gcs.GoogleCloudStorageService()
     self.storage_service.PrepareService(location=self.region)
+    self.persistent_fs_prefix = 'gs://'
 
   @staticmethod
-  def _ParseTime(state_time: str) -> datetime:
+  def _ParseTime(state_time: str) -> datetime.datetime:
     """Parses time from json output.
 
     Args:
@@ -140,6 +129,8 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
       if self.spec.worker_group.vm_spec.num_local_ssds:
         self._AddToCmd(cmd, 'num-{0}-local-ssds'.format(role),
                        self.spec.worker_group.vm_spec.num_local_ssds)
+        # This will actually be used for storage
+        self.dpb_hdfs_type = 'Local SSD'
     # Set zone
     cmd.flags['zone'] = self.dpb_service_zone
     if self.dpb_version:
@@ -147,6 +138,16 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
 
     if FLAGS.gcp_dataproc_image:
       cmd.flags['image'] = FLAGS.gcp_dataproc_image
+
+    if FLAGS.dpb_cluster_properties:
+      cmd.flags['properties'] = ','.join(FLAGS.dpb_cluster_properties)
+
+    # Ideally DpbServiceSpec would have a network spec, which we would create to
+    # Resolve the name, but because EMR provisions its own VPC and we are
+    # generally happy using pre-existing networks for Dataproc. Just use the
+    # underlying flag instead.
+    if FLAGS.gce_network_name:
+      cmd.flags['network'] = FLAGS.gce_network_name
 
     cmd.flags['metadata'] = util.MakeFormattedDefaultTags()
     cmd.flags['labels'] = util.MakeFormattedDefaultTags()
@@ -249,43 +250,9 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
         run_time=(done_time - start_time).total_seconds(),
         pending_time=(start_time - pending_time).total_seconds())
 
-  def SetClusterProperty(self):
-    pass
-
   def _AddToCmd(self, cmd, cmd_property, cmd_value):
     flag_name = cmd_property
     cmd.flags[flag_name] = cmd_value
-
-  def CreateBucket(self, source_bucket):
-    """Create a bucket on GCS used during the persistent data processing.
-
-    Args:
-      source_bucket: String, name of the bucket to create.
-    """
-    self.storage_service.MakeBucket(source_bucket)
-
-  def DeleteBucket(self, source_bucket):
-    """Delete a bucket on GCS used during the persistent data processing.
-
-    Args:
-      source_bucket: String, name of the bucket to delete.
-    """
-    self.storage_service.DeleteBucket(source_bucket)
-
-  def distributed_copy(self, source_location, destination_location):
-    """Method to copy data using a distributed job on the cluster."""
-    cmd = self.DataprocGcloudCommand('jobs', 'submit', 'hadoop')
-    cmd.flags['cluster'] = self.cluster_id
-    cmd.flags['class'] = 'org.apache.hadoop.tools.DistCp'
-
-    job_arguments = (['-m={}'.format(FLAGS.dpb_dataproc_distcp_num_maps)]
-                     if FLAGS.dpb_dataproc_distcp_num_maps is not None else [])
-
-    job_arguments.extend([source_location, destination_location])
-
-    cmd.additional_flags = ['--'] + job_arguments
-    _, _, retcode = cmd.Issue(timeout=None, raise_on_failure=False)
-    return {dpb_service.SUCCESS: retcode == 0}
 
   def MigrateCrossCloud(self,
                         source_location,
@@ -309,17 +276,11 @@ class GcpDpbDataproc(dpb_service.BaseDpbService):
       dest_prefix = 's3a://'
     else:
       raise ValueError('Unsupported destination cloud.')
-
-    cmd = self.DataprocGcloudCommand('jobs', 'submit', 'hadoop')
-    if self.project is not None:
-      cmd.flags['project'] = self.project
-    cmd.flags['cluster'] = self.cluster_id
-    cmd.flags['class'] = 'org.apache.hadoop.tools.DistCp'
     s3_access_key, s3_secret_key = aws_credentials.GetCredentials()
-    cmd.flags['properties'] = 'fs.s3a.access.key=%s,fs.s3a.secret.key=%s' % (
-        s3_access_key, s3_secret_key)
-    cmd.additional_flags = ['--'] + [
-        'gs://' + source_location, dest_prefix + destination_location
-    ]
-    _, _, retcode = cmd.Issue(timeout=None, raise_on_failure=False)
-    return {dpb_service.SUCCESS: retcode == 0}
+    return self.DistributedCopy(
+        'gs://' + source_location,
+        dest_prefix + destination_location,
+        properties={
+            'fs.s3a.access.key': s3_access_key,
+            'fs.s3a.secret.key': s3_secret_key,
+        })

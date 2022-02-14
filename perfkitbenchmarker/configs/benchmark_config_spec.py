@@ -17,9 +17,6 @@ See perfkitbenchmarker/configs/__init__.py for more information about
 configuration files.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import contextlib
 import logging
@@ -134,7 +131,8 @@ class _DpbServiceSpec(spec.BaseSpec):
                 dpb_service.DATAPROC,
             'valid_values': [
                 dpb_service.DATAPROC, dpb_service.DATAFLOW, dpb_service.EMR,
-                dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER
+                dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER,
+                dpb_service.UNMANAGED_SPARK_CLUSTER,
             ]
         }),
         'worker_group': (_VmGroupSpecDecoder, {}),
@@ -530,7 +528,11 @@ class _RelationalDbSpec(spec.BaseSpec):
         'db_disk_spec': (option_decoders.PerCloudConfigDecoder, {}),
         'vm_groups': (_VmGroupsDecoder, {
             'default': {}
-        })
+        }),
+        'db_flags': (option_decoders.ListDecoder, {
+            'item_decoder': option_decoders.StringDecoder(),
+            'default': None
+        }),
     })
     return result
 
@@ -563,25 +565,25 @@ class _RelationalDbSpec(spec.BaseSpec):
     has_client_custom_machine_type = has_client_vm_cpus and has_client_vm_memory
 
     if has_custom_machine_type and has_db_machine_type:
-      raise errors.config.UnrecognizedOption(
+      raise errors.Config.UnrecognizedOption(
           'db_cpus/db_memory can not be specified with '
           'db_machine_type.   Either specify a custom machine '
           'with cpus and memory or specify a predefined machine type.')
 
     if (not has_custom_machine_type and (has_db_cpus or has_db_memory)):
-      raise errors.config.MissingOption(
+      raise errors.Config.MissingOption(
           'To specify a custom database machine instance, both managed_db_cpus '
           'and managed_db_memory must be specified.')
 
     if has_client_custom_machine_type and has_client_machine_type:
-      raise errors.config.UnrecognizedOption(
+      raise errors.Config.UnrecognizedOption(
           'client_vm_cpus/client_vm_memory can not be specified with '
           'client_vm_machine_type.   Either specify a custom machine '
           'with cpus and memory or specify a predefined machine type.')
 
     if (not has_client_custom_machine_type and
         (has_client_vm_cpus or has_client_vm_memory)):
-      raise errors.config.MissingOption(
+      raise errors.Config.MissingOption(
           'To specify a custom client VM, both client_vm_cpus '
           'and client_vm_memory must be specified.')
 
@@ -607,7 +609,8 @@ class _RelationalDbSpec(spec.BaseSpec):
     if flag_values['managed_db_backup_start_time'].present:
       config_values['backup_start_time'] = (
           flag_values.managed_db_backup_start_time)
-
+    if flag_values['db_flags'].present:
+      config_values['db_flags'] = flag_values.db_flags
     cloud = config_values['cloud']
     has_unmanaged_dbs = ('vm_groups' in config_values
                          and 'servers' in config_values['vm_groups'])
@@ -657,8 +660,6 @@ class _RelationalDbSpec(spec.BaseSpec):
           'cpus': flag_values.client_vm_cpus,
           'memory': flag_values.client_vm_memory
       }
-    if flag_values['mysql_flags'].present:
-      config_values['db_spec'][cloud]['mysql_flags'] = flag_values.mysql_flags
     if flag_values['managed_db_disk_size'].present:
       config_values['db_disk_spec'][cloud]['disk_size'] = (
           flag_values.managed_db_disk_size)
@@ -671,12 +672,22 @@ class _RelationalDbSpec(spec.BaseSpec):
       if has_unmanaged_dbs:
         config_values['vm_groups']['servers']['disk_spec'][cloud][
             'disk_type'] = flag_values.managed_db_disk_type
+    if flag_values['managed_db_disk_iops'].present:
+      # This value will be used in aws_relation_db.py druing db creation
+      config_values['db_disk_spec'][cloud]['iops'] = (
+          flag_values.managed_db_disk_iops)
+      if has_unmanaged_dbs:
+        config_values['vm_groups']['servers']['disk_spec'][cloud][
+            'iops'] = flag_values.managed_db_disk_iops
     if flag_values['client_vm_disk_size'].present:
       config_values['vm_groups']['clients']['disk_spec'][cloud]['disk_size'] = (
           flag_values.client_vm_disk_size)
     if flag_values['client_vm_disk_type'].present:
       config_values['vm_groups']['clients']['disk_spec'][cloud]['disk_type'] = (
           flag_values.client_vm_disk_type)
+    if flag_values['client_vm_disk_iops'].present:
+      config_values['vm_groups']['clients']['disk_spec'][cloud]['disk_iops'] = (
+          flag_values.client_vm_disk_iops)
     logging.warning('Relational db config values: %s', config_values)
 
 

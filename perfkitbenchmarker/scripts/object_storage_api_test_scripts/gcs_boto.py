@@ -1,4 +1,3 @@
-# Lint as: python2, python3
 # Copyright 2020 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +13,6 @@
 # limitations under the License.
 """An interface to Google Cloud Storage, using the boto library."""
 
-from __future__ import absolute_import
 
 import logging
 import time

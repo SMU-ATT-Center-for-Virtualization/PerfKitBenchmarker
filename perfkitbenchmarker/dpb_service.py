@@ -22,8 +22,7 @@ the corresponding provider directory as a subclass of BaseDpbService.
 import abc
 import datetime
 import logging
-import posixpath
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from absl import flags
 from dataclasses import dataclass
@@ -31,6 +30,11 @@ from perfkitbenchmarker import errors
 from perfkitbenchmarker import resource
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.linux_packages import hadoop
+from perfkitbenchmarker.linux_packages import spark
+from perfkitbenchmarker.providers.aws import s3
+from perfkitbenchmarker.providers.aws import util as aws_util
+from perfkitbenchmarker.providers.gcp import gcs
+from perfkitbenchmarker.providers.gcp import util as gcp_util
 
 flags.DEFINE_string(
     'static_dpb_service_instance', None,
@@ -45,6 +49,11 @@ flags.DEFINE_string('dpb_service_zone', None, 'The zone for provisioning the '
                     'dpb_service instance.')
 flags.DEFINE_list('dpb_job_properties', [], 'A list of strings of the form '
                   '"key=vale" to be passed into DBP jobs.')
+flags.DEFINE_list(
+    'dpb_cluster_properties', [], 'A list of strings of the form '
+    '"type:key=value" to be passed into DBP clusters. See '
+    'https://cloud.google.com/dataproc/docs/concepts/configuring-clusters/cluster-properties.'
+)
 
 
 FLAGS = flags.FLAGS
@@ -54,6 +63,7 @@ DATAPROC = 'dataproc'
 DATAFLOW = 'dataflow'
 EMR = 'emr'
 UNMANAGED_DPB_SVC_YARN_CLUSTER = 'unmanaged_dpb_svc_yarn_cluster'
+UNMANAGED_SPARK_CLUSTER = 'unmanaged_spark_cluster'
 
 # Default number of workers to be used in the dpb service implementation
 DEFAULT_WORKER_COUNT = 2
@@ -67,6 +77,11 @@ HIVE = 'hive'
 SUCCESS = 'success'
 RUNTIME = 'running_time'
 WAITING = 'pending_time'
+
+
+class JobNotCompletedError(Exception):
+  """Used to signal a job is still running."""
+  pass
 
 
 class JobSubmissionError(errors.Benchmarks.RunError):
@@ -124,7 +139,7 @@ class BaseDpbService(resource.BaseResource):
 
   JOB_JARS = {
       SPARK_JOB_TYPE: {
-          'pi': 'file:///usr/lib/spark/examples/jars/spark-examples.jar'
+          'examples': 'file:///usr/lib/spark/examples/jars/spark-examples.jar'
       }
   }
 
@@ -144,10 +159,15 @@ class BaseDpbService(resource.BaseResource):
       self.cluster_id = dpb_service_spec.static_dpb_service_instance
     else:
       self.cluster_id = 'pkb-' + FLAGS.run_uri
+    self.bucket = 'pkb-' + FLAGS.run_uri
     self.dpb_service_zone = FLAGS.dpb_service_zone
     self.dpb_version = dpb_service_spec.version
     self.dpb_service_type = 'unknown'
     self.storage_service = None
+
+  @property
+  def base_dir(self):
+    return self.persistent_fs_prefix + self.bucket
 
   @abc.abstractmethod
   def SubmitJob(self,
@@ -191,6 +211,60 @@ class BaseDpbService(resource.BaseResource):
     """
     pass
 
+  def _WaitForJob(self, job_id, timeout, poll_interval):
+
+    @vm_util.Retry(
+        timeout=timeout,
+        poll_interval=poll_interval,
+        fuzz=0,
+        retryable_exceptions=(JobNotCompletedError,))
+    def Poll():
+      result = self._GetCompletedJob(job_id)
+      if result is None:
+        raise JobNotCompletedError('Job {} not complete.'.format(job_id))
+      return result
+
+    return Poll()
+
+  def _GetCompletedJob(self, job_id: str) -> Optional[JobResult]:
+    """Get the job result if it has finished.
+
+    Args:
+      job_id: The step id to query.
+
+    Returns:
+      A dictionary describing the job if the step the step is complete,
+          None otherwise.
+
+    Raises:
+      JobSubmissionError if job fails.
+    """
+    raise NotImplementedError('You need to implement _GetCompletedJob if you '
+                              'use _WaitForJob')
+
+  def DistributedCopy(self,
+                      source: str,
+                      destination: str,
+                      properties: Optional[Dict[str, str]] = None) -> JobResult:
+    """Method to copy data using a distributed job on the cluster.
+
+    Args:
+      source: HCFS directory to copy data from.
+      destination: name of new HCFS directory to copy data into.
+      properties: properties to add to the job. Not supported on EMR.
+
+    Returns:
+      A JobResult with the timing of the successful job.
+
+    Raises:
+      JobSubmissionError if job fails.
+    """
+    return self.SubmitJob(
+        classname='org.apache.hadoop.tools.DistCp',
+        job_arguments=[source, destination],
+        job_type=BaseDpbService.HADOOP_JOB_TYPE,
+        properties=properties)
+
   def GetMetadata(self):
     """Return a dictionary of the metadata for this cluster."""
     pretty_version = self.dpb_version or 'default'
@@ -206,12 +280,21 @@ class BaseDpbService(resource.BaseResource):
         'dpb_service_zone': self.dpb_service_zone,
         'dpb_job_properties': ','.join(
             '{}={}'.format(k, v) for k, v in self.GetJobProperties().items()),
+        'dpb_cluster_properties': ','.join(FLAGS.dpb_cluster_properties),
     }
     return basic_data
+
+  def _CreateDependencies(self):
+    """Creates a bucket to use with the cluster."""
+    self.storage_service.MakeBucket(self.bucket)
 
   def _Create(self):
     """Creates the underlying resource."""
     raise NotImplementedError()
+
+  def _DeleteDependencies(self):
+    """Deletes the bucket used with the cluster."""
+    self.storage_service.DeleteBucket(self.bucket)
 
   def _Delete(self):
     """Deletes the underlying resource.
@@ -265,72 +348,30 @@ class BaseDpbService(resource.BaseResource):
 
     return self.JOB_JARS[job_category][job_type]
 
-  def SubmitSparkJob(self, spark_application_jar, spark_application_classname,
-                     spark_application_args):
-    """Submit a SparkJob to the service instance, returning performance stats.
-
-    Args:
-      spark_application_jar: String path to the spark application executable
-       that containing workload implementation.
-      spark_application_classname: Classname of the spark job's implementation
-       in the spark_application_jar file.
-      spark_application_args: Arguments to pass to spark application. These are
-       not the arguments passed to the wrapper that submits the job.
-
-    Returns:
-      JobResult of the Spark Job
-
-    Raises:
-      JobSubmissionError if the job fails.
-    """
-    return self.SubmitJob(
-        jarfile=spark_application_jar,
-        job_type='spark',
-        classname=spark_application_classname,
-        job_arguments=spark_application_args
-    )
-
-  def CreateBucket(self, source_bucket):
-    """Creates an object-store bucket used during persistent data processing.
-
-    Default behaviour is a no-op as concrete implementations will have native
-    implementations.
-
-    Args:
-      source_bucket: String, name of the bucket to create.
-    """
-    pass
-
-  def DeleteBucket(self, source_bucket):
-    """Deletes an object-store bucket used during persistent data processing.
-
-    Default behaviour is a no-op as concrete implementations will have native
-    implementations.
-
-    Args:
-      source_bucket: String, name of the bucket to delete.
-    """
-    pass
-
 
 class UnmanagedDpbService(BaseDpbService):
   """Object representing an un-managed dpb service."""
 
-  @abc.abstractmethod
-  def SubmitJob(self,
-                jarfile=None,
-                classname=None,
-                pyspark_file=None,
-                query_file=None,
-                job_poll_interval=None,
-                job_stdout_file=None,
-                job_arguments=None,
-                job_files=None,
-                job_jars=None,
-                job_type=None,
-                properties=None):
-    """Submit a data processing job to the backend."""
-    pass
+  def __init__(self, dpb_service_spec):
+    super(UnmanagedDpbService, self).__init__(dpb_service_spec)
+    #  Dictionary to hold the cluster vms.
+    self.vms = {}
+    self.cloud = dpb_service_spec.worker_group.cloud
+    if not self.dpb_service_zone:
+      raise errors.Setup.InvalidSetupError(
+          'dpb_service_zone must be provided, for provisioning.')
+    self.storage_service = None
+    if self.cloud == 'GCP':
+      self.region = gcp_util.GetRegionFromZone(FLAGS.dpb_service_zone)
+      self.storage_service = gcs.GoogleCloudStorageService()
+      self.persistent_fs_prefix = 'gs://'
+    elif self.cloud == 'AWS':
+      self.region = aws_util.GetRegionFromZone(FLAGS.dpb_service_zone)
+      self.storage_service = s3.S3Service()
+      self.persistent_fs_prefix = 's3://'
+
+    if self.storage_service:
+      self.storage_service.PrepareService(location=self.region)
 
 
 class UnmanagedDpbServiceYarnCluster(UnmanagedDpbService):
@@ -347,23 +388,27 @@ class UnmanagedDpbServiceYarnCluster(UnmanagedDpbService):
   def __init__(self, dpb_service_spec):
     super(UnmanagedDpbServiceYarnCluster, self).__init__(dpb_service_spec)
     #  Dictionary to hold the cluster vms.
-    self.vms = {}
     self.dpb_service_type = UNMANAGED_DPB_SVC_YARN_CLUSTER
+    # Set DPB version as Hadoop version for metadata
+    self.cloud = dpb_service_spec.worker_group.cloud
 
   def _Create(self):
     """Create an un-managed yarn cluster."""
     logging.info('Should have created vms by now.')
     logging.info(str(self.vms))
 
-    # need to fix this to install spark
     def InstallHadoop(vm):
       vm.Install('hadoop')
+      if self.cloud == 'GCP':
+        hadoop.InstallGcsConnector(vm)
+      if self.cloud == 'AWS':
+        hadoop.InstallS3Connector(vm)
 
-    vm_util.RunThreaded(InstallHadoop, self.vms['worker_group'] +
-                        self.vms['master_group'])
+    vm_util.RunThreaded(InstallHadoop,
+                        self.vms['worker_group'] + self.vms['master_group'])
     self.leader = self.vms['master_group'][0]
-    hadoop.ConfigureAndStart(self.leader,
-                             self.vms['worker_group'])
+    hadoop.ConfigureAndStart(
+        self.leader, self.vms['worker_group'], configure_s3=self.cloud == 'AWS')
 
   def SubmitJob(self,
                 jarfile=None,
@@ -380,7 +425,7 @@ class UnmanagedDpbServiceYarnCluster(UnmanagedDpbService):
     """Submit a data processing job to the backend."""
     if job_type != self.HADOOP_JOB_TYPE:
       raise NotImplementedError
-    cmd_list = [posixpath.join(hadoop.HADOOP_BIN, 'hadoop')]
+    cmd_list = [hadoop.HADOOP_CMD]
     # Order is important
     if jarfile:
       cmd_list += ['jar', jarfile]
@@ -396,10 +441,11 @@ class UnmanagedDpbServiceYarnCluster(UnmanagedDpbService):
     cmd_string = ' '.join(cmd_list)
 
     start_time = datetime.datetime.now()
-    stdout, stderr, retcode = self.leader.RemoteCommandWithReturnCode(
-        cmd_string)
-    if retcode:
-      raise JobSubmissionError(stderr)
+    try:
+      stdout, _ = self.leader.RobustRemoteCommand(
+          cmd_string, should_log=True)
+    except errors.VirtualMachine.RemoteCommandError as e:
+      raise JobSubmissionError() from e
     end_time = datetime.datetime.now()
 
     if job_stdout_file:
@@ -410,9 +456,103 @@ class UnmanagedDpbServiceYarnCluster(UnmanagedDpbService):
   def _Delete(self):
     pass
 
-  def GetExecutionJar(self, job_category, job_type):
-    """Retrieve execution jar corresponding to the job_category and job_type."""
-    if (job_category not in self.JOB_JARS or
-        job_type not in self.JOB_JARS[job_category]):
-      raise NotImplementedError()
-    return self.JOB_JARS[job_category][job_type]
+  def _GetCompletedJob(self, job_id: str) -> Optional[JobResult]:
+    """Submitting Job via SSH is blocking so this is not meaningful."""
+    raise NotImplementedError('Submitting Job via SSH is a blocking command.')
+
+
+class UnmanagedDpbSparkCluster(UnmanagedDpbService):
+  """Object representing an un-managed dpb service spark cluster."""
+
+  SERVICE_TYPE = UNMANAGED_SPARK_CLUSTER
+  JOB_JARS = {
+      'spark': {
+          'examples': spark.SPARK_DIR + '/examples/jars/spark-examples_*.jar'
+      }
+  }
+
+  def __init__(self, dpb_service_spec):
+    super(UnmanagedDpbSparkCluster, self).__init__(dpb_service_spec)
+    #  Dictionary to hold the cluster vms.
+    self.vms = {}
+    self.dpb_service_type = UNMANAGED_SPARK_CLUSTER
+    # Set DPB version as Spark version for metadata
+    self.dpb_version = 'spark_' + FLAGS.spark_version
+    self.cloud = dpb_service_spec.worker_group.cloud
+
+  def _Create(self):
+    """Create an un-managed yarn cluster."""
+    logging.info('Should have created vms by now.')
+    logging.info(str(self.vms))
+
+    def InstallSpark(vm):
+      vm.Install('spark')
+      if self.cloud == 'GCP':
+        hadoop.InstallGcsConnector(vm)
+      if self.cloud == 'AWS':
+        hadoop.InstallS3Connector(vm)
+
+    vm_util.RunThreaded(InstallSpark,
+                        self.vms['worker_group'] + self.vms['master_group'])
+    self.leader = self.vms['master_group'][0]
+    spark.ConfigureAndStart(
+        self.leader, self.vms['worker_group'], configure_s3=self.cloud == 'AWS')
+
+  def SubmitJob(self,
+                jarfile=None,
+                classname=None,
+                pyspark_file=None,
+                query_file=None,
+                job_poll_interval=None,
+                job_stdout_file=None,
+                job_arguments=None,
+                job_files=None,
+                job_jars=None,
+                job_type=None,
+                properties=None):
+    """Submit a data processing job to the backend."""
+    # TODO(pclay): support BaseDpbService.SPARKSQL_JOB_TYPE
+    if job_type not in [
+        BaseDpbService.PYSPARK_JOB_TYPE,
+        BaseDpbService.SPARK_JOB_TYPE,
+    ]:
+      raise NotImplementedError
+    cmd = [spark.SPARK_SUBMIT]
+    # Order is important
+    if classname:
+      cmd += ['--class', classname]
+    all_properties = self.GetJobProperties()
+    all_properties.update(properties or {})
+    for k, v in all_properties.items():
+      cmd += ['--conf', '{}={}'.format(k, v)]
+    if job_files:
+      cmd = ['--files', ','.join(job_files)]
+    # Main jar/script goes last before args.
+    if job_type == BaseDpbService.SPARK_JOB_TYPE:
+      assert jarfile
+      cmd.append(jarfile)
+    elif job_type == BaseDpbService.PYSPARK_JOB_TYPE:
+      assert pyspark_file
+      cmd.append(pyspark_file)
+    if job_arguments:
+      cmd += job_arguments
+
+    start_time = datetime.datetime.now()
+    try:
+      stdout, _ = self.leader.RobustRemoteCommand(
+          ' '.join(cmd), should_log=True)
+    except errors.VirtualMachine.RemoteCommandError as e:
+      raise JobSubmissionError() from e
+    end_time = datetime.datetime.now()
+
+    if job_stdout_file:
+      with open(job_stdout_file, 'w') as f:
+        f.write(stdout)
+    return JobResult(run_time=(end_time - start_time).total_seconds())
+
+  def _Delete(self):
+    pass
+
+  def _GetCompletedJob(self, job_id: str) -> Optional[JobResult]:
+    """Submitting Job via SSH is blocking so this is not meaningful."""
+    raise NotImplementedError('Submitting Job via SSH is a blocking command.')

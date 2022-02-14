@@ -1,4 +1,3 @@
-# Lint as: python2, python3
 # Copyright 2016 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +14,6 @@
 
 """An interface to the Azure Blob Storage API."""
 
-from __future__ import absolute_import
 
 import logging
 import time

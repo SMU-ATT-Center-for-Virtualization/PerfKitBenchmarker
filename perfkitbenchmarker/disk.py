@@ -17,9 +17,6 @@
 Disks can be created, deleted, attached to VMs, and detached from VMs.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import abc
 import logging
@@ -175,6 +172,7 @@ def WarnAndCopyFlag(old_name, new_name):
 DISK_FLAGS_TO_TRANSLATE = {
     'scratch_disk_type': 'data_disk_type',
     'scratch_disk_iops': 'aws_provisioned_iops',
+    'scratch_disk_throughput': 'aws_provisioned_throughput',
     'scratch_disk_size': 'data_disk_size'
 }
 
@@ -508,6 +506,7 @@ class NfsDisk(NetworkDisk):
     for key, value in six.iteritems(self._GetNetworkDiskMountOptionsDict()):
       self.metadata['nfs_{}'.format(key)] = value
     if nfs_tier:
+      self.nfs_tier = nfs_tier
       self.metadata['nfs_tier'] = nfs_tier
     super(NfsDisk, self).GetResourceMetadata()
 

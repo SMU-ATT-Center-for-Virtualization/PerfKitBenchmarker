@@ -18,9 +18,6 @@ All VM specifics are self-contained and the class provides methods to
 operate on the VM: boot, shutdown, etc.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import abc
 import contextlib
@@ -29,6 +26,7 @@ import os.path
 import socket
 import threading
 import time
+import typing
 
 from absl import flags
 import jinja2
@@ -300,6 +298,10 @@ class BaseOsMixin(six.with_metaclass(abc.ABCMeta, object)):
   # container can have side effects in certain situations.
   IS_REBOOTABLE = True
 
+  # Supports overriding the PIP package version based on the provider image.
+  # By default, the latest PIP version is used.
+  PYTHON_PIP_PACKAGE_VERSION = None
+
   def __init__(self):
     super(BaseOsMixin, self).__init__()
     self._installed_packages = set()
@@ -308,7 +310,6 @@ class BaseOsMixin(six.with_metaclass(abc.ABCMeta, object)):
     self.bootable_time = None
     self.port_listening_time = None
     self.hostname = None
-    self.is_failed_run = False
 
     # Ports that will be opened by benchmark_spec to permit access to the VM.
     self.remote_access_ports = []
@@ -877,10 +878,6 @@ class BaseVirtualMachine(BaseOsMixin, resource.BaseResource):
   _instance_counter_lock = threading.Lock()
   _instance_counter = 0
 
-  # Supports overriding the PIP package version based on the provider image.
-  # By default, the latest PIP version is used.
-  PYTHON_PIP_PACKAGE_VERSION = None
-
   def __init__(self, vm_spec):
     """Initialize BaseVirtualMachine class.
 
@@ -1256,12 +1253,30 @@ class BaseVirtualMachine(BaseOsMixin, resource.BaseResource):
     """
     return False
 
-  def UpdateInterruptibleVmStatus(self):
-    """Updates the status of the discounted vm.
-    """
-    # TODO(tohaowu) Set it to pure virtual function after finishing it on all
-    # the providers.
+  def _UpdateInterruptibleVmStatusThroughMetadataService(self):
+    raise NotImplementedError()
+
+  def _UpdateInterruptibleVmStatusThroughApi(self):
+    # Azure do not support detecting through api
     pass
+
+  def UpdateInterruptibleVmStatus(self, use_api=False):
+    """Updates the status of the discounted vm.
+
+    Args:
+      use_api: boolean, If use_api is false, method will attempt to query
+      metadata service to check vm preemption. If use_api is true, method will
+      attempt to use API to detect vm preemption query if metadata service
+      detecting fails.
+    """
+    if not self.preemptible:
+      return
+    if self.spot_early_termination:
+      return
+    try:
+      self._UpdateInterruptibleVmStatusThroughMetadataService()
+    except (NotImplementedError, errors.VirtualMachine.RemoteCommandError):
+      self._UpdateInterruptibleVmStatusThroughApi()
 
   def WasInterrupted(self):
     """Returns whether this interruptible vm was terminated early.
@@ -1296,3 +1311,6 @@ class BaseVirtualMachine(BaseOsMixin, resource.BaseResource):
   def _PreDelete(self):
     """See base class."""
     self.LogVmDebugInfo()
+
+
+VirtualMachine = typing.TypeVar('VirtualMachine', bound=BaseVirtualMachine)

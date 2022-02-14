@@ -27,9 +27,6 @@ Memtier_benchmark usage:
 https://redislabs.com/blog/memtier_benchmark-a-high-throughput-benchmarking-tool-for-redis-memcached/
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 from absl import flags
 from perfkitbenchmarker import configs
 from perfkitbenchmarker.linux_packages import memcached_server
@@ -123,7 +120,7 @@ def Run(benchmark_spec):
   metadata = {'memcached_version': memcached_server.GetVersion(server),
               'memcached_server_size': FLAGS.memcached_size_mb,
               'memcached_server_threads': FLAGS.memcached_num_threads}
-  samples = memtier.RunOverAllThreadsAndPipelines(
+  samples = memtier.RunOverAllThreadsPipelinesAndClients(
       client, server_ip, memcached_server.MEMCACHED_PORT)
   for sample in samples:
     sample.metadata.update(metadata)

@@ -80,6 +80,12 @@ flags.DEFINE_enum('gce_boot_disk_type', None, ['pd-standard', 'pd-ssd'],
                   'The boot disk type for GCP VMs.')
 flags.DEFINE_enum('gce_ssd_interface', 'SCSI', ['SCSI', 'NVME'],
                   'The ssd interface for GCE local SSD.')
+flags.DEFINE_enum('gce_nic_type', 'VIRTIO_NET', ['VIRTIO_NET', 'GVNIC'],
+                  'The virtual NIC type of GCE VMs.')
+EGRESS_BANDWIDTH_TIER = flags.DEFINE_enum(
+    'gce_egress_bandwidth_tier', None, ['TIER_1'],
+    'Egress bandwidth tier of the GCE VMs.')
+
 flags.DEFINE_string('gcp_node_type', None,
                     'The node type of all sole tenant hosts that get created.')
 flags.DEFINE_enum(
@@ -136,18 +142,3 @@ flags.DEFINE_boolean('gce_firewall_rules_clean_all', False,
 flags.DEFINE_enum('bq_client_interface', 'CLI',
                   ['CLI', 'JAVA', 'SIMBA_JDBC_1_2_4_1007'],
                   'The Runtime Interface used when interacting with BigQuery.')
-flags.DEFINE_string('gcp_preemptible_status_bucket', None,
-                    'The GCS bucket to store the preemptible status when '
-                    'running on GCP.')
-
-
-def _ValidatePreemptFlags(flags_dict):
-  if flags_dict['gce_preemptible_vms']:
-    return bool(flags_dict['gcp_preemptible_status_bucket'])
-  return True
-
-
-flags.register_multi_flags_validator(
-    ['gce_preemptible_vms', 'gcp_preemptible_status_bucket'],
-    _ValidatePreemptFlags, 'When gce_preemptible_vms is specified, '
-    'gcp_preemptible_status_bucket must be specified.')

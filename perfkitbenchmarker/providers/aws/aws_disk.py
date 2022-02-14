@@ -38,7 +38,9 @@ VOLUME_KNOWN_STATUSES = VOLUME_EXISTS_STATUSES | VOLUME_DELETED_STATUSES
 
 STANDARD = 'standard'
 GP2 = 'gp2'
+GP3 = 'gp3'
 IO1 = 'io1'
+IO2 = 'io2'
 ST1 = 'st1'
 SC1 = 'sc1'
 
@@ -57,7 +59,15 @@ DISK_METADATA = {
         disk.MEDIA: disk.SSD,
         disk.REPLICATION: disk.ZONE,
     },
+    GP3: {
+        disk.MEDIA: disk.SSD,
+        disk.REPLICATION: disk.ZONE,
+    },
     IO1: {
+        disk.MEDIA: disk.SSD,
+        disk.REPLICATION: disk.ZONE,
+    },
+    IO2: {
         disk.MEDIA: disk.SSD,
         disk.REPLICATION: disk.ZONE,
     },
@@ -146,6 +156,7 @@ NUM_LOCAL_VOLUMES = {
     'i3en.6xlarge': 2,
     'i3en.12xlarge': 4,
     'i3en.24xlarge': 8,
+    'i3en.metal': 8,
     'c5ad.large': 1,
     'c5ad.xlarge': 1,
     'c5ad.2xlarge': 1,
@@ -160,12 +171,24 @@ NUM_LOCAL_VOLUMES = {
     'c5d.4xlarge': 1,
     'c5d.9xlarge': 1,
     'c5d.18xlarge': 2,
+    'c5d.24xlarge': 4,
+    'c5d.metal': 4,
+    'c6gd.large': 1,
+    'c6gd.xlarge': 1,
+    'c6gd.2xlarge': 1,
+    'c6gd.4xlarge': 1,
+    'c6gd.8xlarge': 1,
+    'c6gd.12xlarge': 2,
+    'c6gd.16xlarge': 2,
+    'c6gd.metal': 2,
     'm5d.large': 1,
     'm5d.xlarge': 1,
     'm5d.2xlarge': 1,
     'm5d.4xlarge': 2,
+    'm5d.8xlarge': 2,
     'm5d.12xlarge': 2,
     'm5d.24xlarge': 4,
+    'm5d.metal': 4,
     'm6gd.large': 1,
     'm6gd.xlarge': 1,
     'm6gd.2xlarge': 1,
@@ -173,6 +196,7 @@ NUM_LOCAL_VOLUMES = {
     'm6gd.8xlarge': 1,
     'm6gd.12xlarge': 2,
     'm6gd.16xlarge': 2,
+    'm6gd.metal': 2,
     'r5d.large': 1,
     'r5d.xlarge': 1,
     'r5d.2xlarge': 1,
@@ -226,6 +250,7 @@ class AwsDiskSpec(disk.BaseDiskSpec):
 
   Attributes:
     iops: None or int. IOPS for Provisioned IOPS (SSD) volumes in AWS.
+    throughput: None or int. Throughput for (SSD) volumes in AWS.
   """
 
   CLOUD = aws.CLOUD
@@ -245,6 +270,8 @@ class AwsDiskSpec(disk.BaseDiskSpec):
     super(AwsDiskSpec, cls)._ApplyFlags(config_values, flag_values)
     if flag_values['aws_provisioned_iops'].present:
       config_values['iops'] = flag_values.aws_provisioned_iops
+    if flag_values['aws_provisioned_throughput'].present:
+      config_values['throughput'] = flag_values.aws_provisioned_throughput
 
   @classmethod
   def _GetOptionDecoderConstructions(cls):
@@ -256,8 +283,18 @@ class AwsDiskSpec(disk.BaseDiskSpec):
           arguments to construct in order to decode the named option.
     """
     result = super(AwsDiskSpec, cls)._GetOptionDecoderConstructions()
-    result.update({'iops': (option_decoders.IntDecoder, {'default': None,
-                                                         'none_ok': True})})
+    result.update({
+        'iops': (option_decoders.IntDecoder, {
+            'default': None,
+            'none_ok': True
+        })
+    })
+    result.update({
+        'throughput': (option_decoders.IntDecoder, {
+            'default': None,
+            'none_ok': True
+        })
+    })
     return result
 
 
@@ -270,6 +307,7 @@ class AwsDisk(disk.BaseDisk):
   def __init__(self, disk_spec, zone, machine_type):
     super(AwsDisk, self).__init__(disk_spec)
     self.iops = disk_spec.iops
+    self.throughput = disk_spec.throughput
     self.id = None
     self.zone = zone
     self.region = util.GetRegionFromZone(zone)
@@ -284,6 +322,8 @@ class AwsDisk(disk.BaseDisk):
                             else LOCAL_SSD_METADATA))
     if self.iops:
       self.metadata['iops'] = self.iops
+    if self.throughput:
+      self.metadata['throughput'] = self.throughput
 
   def AssignDeviceLetter(self, letter_suggestion, nvme_boot_drive_index):
     if LocalDriveIsNvme(self.machine_type) and \
@@ -309,8 +349,12 @@ class AwsDisk(disk.BaseDisk):
         '--volume-type=%s' % self.disk_type]
     if not util.IsRegion(self.zone):
       create_cmd.append('--availability-zone=%s' % self.zone)
-    if self.disk_type == IO1:
+    if self.disk_type in [IO1, IO2]:
       create_cmd.append('--iops=%s' % self.iops)
+    if self.disk_type == GP3 and self.iops:
+      create_cmd.append('--iops=%s' % self.iops)
+    if self.disk_type == GP3 and self.throughput:
+      create_cmd.append('--throughput=%s' % self.throughput)
     stdout, _, _ = vm_util.IssueCommand(create_cmd)
     response = json.loads(stdout)
     self.id = response['VolumeId']

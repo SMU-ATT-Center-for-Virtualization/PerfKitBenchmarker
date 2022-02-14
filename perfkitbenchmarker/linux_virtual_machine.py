@@ -95,14 +95,16 @@ flags.DEFINE_list('sysctl', [],
                   ' and then the machine will be rebooted before starting'
                   'the benchmark.')
 
-flags.DEFINE_list('set_files', [],
-                  'Arbitrary filesystem configuration. This flag should be a '
-                  'comma-separated list of path=value pairs. Each value will '
-                  'be written to the corresponding path. For example, if you '
-                  'pass --set_files=/sys/kernel/mm/transparent_hugepage/enabled=always, '  # noqa
-                  'then PKB will write "always" to '
-                  '/sys/kernel/mm/transparent_hugepage/enabled before starting '
-                  'the benchmark.')
+flags.DEFINE_list(
+    'set_files',
+    [],
+    'Arbitrary filesystem configuration. This flag should be a '
+    'comma-separated list of path=value pairs. Each value will '
+    'be written to the corresponding path. For example, if you '
+    'pass --set_files=/sys/kernel/mm/transparent_hugepage/enabled=always, '
+    'then PKB will write "always" to '
+    '/sys/kernel/mm/transparent_hugepage/enabled before starting '
+    'the benchmark.')
 
 flags.DEFINE_bool('network_enable_BBR', False,
                   'A shortcut to enable BBR congestion control on the network. '
@@ -167,6 +169,10 @@ flags.DEFINE_integer(
 
 flags.DEFINE_boolean('gce_hpc_tools', False,
                      'Whether to apply the hpc-tools environment script.')
+
+flags.DEFINE_boolean('disable_smt', False,
+                     'Whether to disable SMT (Simultaneous Multithreading) '
+                     'in BIOS.')
 
 RETRYABLE_SSH_RETCODE = 255
 
@@ -283,13 +289,18 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
         setting)
     self.os_metadata['transparent_hugepage'] = setting
 
-  def _PushRobustCommandScripts(self):
-    """Pushes the scripts required by RobustRemoteCommand to this VM.
+  def _SetupRobustCommand(self):
+    """Sets up the RobustRemoteCommand tooling.
 
-    If the scripts have already been placed on the VM, this is a noop.
+    This includes installing python3 and pushing scripts required by
+    RobustRemoteCommand to this VM.  There is a check to skip if previously
+    installed.
     """
     with self._remote_command_script_upload_lock:
       if not self._has_remote_command_script:
+        # Python3 is needed for RobustRemoteCommands
+        self.Install('python3')
+
         for f in (EXECUTE_COMMAND, WAIT_FOR_COMMAND):
           remote_path = os.path.join(vm_util.VM_TMP_DIR, os.path.basename(f))
           if os.path.basename(remote_path):
@@ -333,7 +344,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
       RemoteCommandError: If there was a problem establishing the connection, or
           the command fails.
     """
-    self._PushRobustCommandScripts()
+    self._SetupRobustCommand()
 
     execute_path = os.path.join(vm_util.VM_TMP_DIR,
                                 os.path.basename(EXECUTE_COMMAND))
@@ -351,7 +362,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     if not isinstance(command, str):
       command = ' '.join(command)
 
-    start_command = ['nohup', 'python', execute_path,
+    start_command = ['nohup', 'python3', execute_path,
                      '--stdout', stdout_file,
                      '--stderr', stderr_file,
                      '--status', status_file,
@@ -365,7 +376,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     self.RemoteCommand(start_command)
 
     def _WaitForCommand():
-      wait_command = ['python', wait_path,
+      wait_command = ['python3', wait_path,
                       '--status', status_file,
                       '--exclusive', exclusive_file]  # pyformat: disable
       stdout = ''
@@ -709,6 +720,7 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     self.tcp_congestion_control = self.TcpCongestionControl()
     lscpu_results = self.CheckLsCpu()
     self.numa_node_count = lscpu_results.numa_node_count
+    self.os_metadata['threads_per_core'] = lscpu_results.threads_per_core
     self.os_metadata['os_info'] = self.os_info
     self.os_metadata['kernel_release'] = self.kernel_release
     self.os_metadata.update(self.partition_table)
@@ -1350,6 +1362,10 @@ class BaseLinuxMixin(virtual_machine.BaseOsMixin):
     In addition, to consolidate reboots during VM prepare, this method sets the
     needs reboot bit instead of immediately rebooting.
     """
+    if FLAGS.disable_smt and self.CheckLsCpu().threads_per_core != 1:
+      FLAGS.append_kernel_command_line = ' '.join(
+          (FLAGS.append_kernel_command_line,
+           'nosmt')) if FLAGS.append_kernel_command_line else 'nosmt'
     if FLAGS.append_kernel_command_line:
       self.AppendKernelCommandLine(
           FLAGS.append_kernel_command_line, reboot=False)
@@ -1420,19 +1436,22 @@ class ClearMixin(BaseLinuxMixin):
 
   def SnapshotPackages(self):
     """See base class."""
-    self.RemoteCommand('sudo swupd bundle-list > {0}/bundle_list'.format(linux_packages.INSTALL_DIR))
+    self.RemoteCommand('sudo swupd bundle-list > {0}/bundle_list'.format(
+        linux_packages.INSTALL_DIR))
 
   def RestorePackages(self):
     """See base class."""
     self.RemoteCommand(
         'sudo swupd bundle-list | grep --fixed-strings --line-regexp --invert-match --file '
-        '{0}/bundle_list | xargs --no-run-if-empty sudo swupd bundle-remove'.format(linux_packages.INSTALL_DIR),
+        '{0}/bundle_list | xargs --no-run-if-empty sudo swupd bundle-remove'
+        .format(linux_packages.INSTALL_DIR),
         ignore_failure=True)
 
   def HasPackage(self, package):
     """Returns True iff the package is available for installation."""
-    return self.TryRemoteCommand('sudo swupd bundle-list --all | grep {0}'.format(package),
-                                 suppress_warning=True)
+    return self.TryRemoteCommand(
+        'sudo swupd bundle-list --all | grep {0}'.format(package),
+        suppress_warning=True)
 
   def InstallPackages(self, packages: str) -> None:
     """Installs packages using the swupd bundle manager."""
@@ -1449,7 +1468,9 @@ class ClearMixin(BaseLinuxMixin):
       elif hasattr(package, 'Install'):
         package.Install(self)
       else:
-        raise KeyError('Package {0} has no install method for Clear Linux.'.format(package_name))
+        raise KeyError(
+            'Package {0} has no install method for Clear Linux.'.format(
+                package_name))
       self._installed_packages.add(package_name)
 
   def Uninstall(self, package_name):
@@ -1461,19 +1482,20 @@ class ClearMixin(BaseLinuxMixin):
       package.Uninstall(self)
 
   def GetPathToConfig(self, package_name):
-    """See base class"""
+    """See base class."""
     package = linux_packages.PACKAGES[package_name]
     return package.SwupdGetPathToConfig(self)
 
   def GetServiceName(self, package_name):
-    """See base class"""
+    """See base class."""
     package = linux_packages.PACKAGES[package_name]
     return package.SwupdGetServiceName(self)
 
   def GetOsInfo(self):
-    """See base class"""
+    """See base class."""
     stdout, _ = self.RemoteCommand('swupd info | grep Installed')
-    return "Clear Linux build: {0}".format(regex_util.ExtractGroup(CLEAR_BUILD_REGEXP, stdout))
+    return 'Clear Linux build: {0}'.format(
+        regex_util.ExtractGroup(CLEAR_BUILD_REGEXP, stdout))
 
   def SetupProxy(self):
     """Sets up proxy configuration variables for the cloud environment."""
@@ -1659,13 +1681,6 @@ class BaseRhelMixin(BaseLinuxMixin):
       self.Reboot()
 
 
-class AmazonLinux1Mixin(BaseRhelMixin, virtual_machine.DeprecatedOsMixin):
-  """Class holding Amazon Linux 1 VM methods and attributes."""
-  OS_TYPE = os_types.AMAZONLINUX1
-  END_OF_LIFE = '2021-01-01'
-  ALTERNATIVE_OS = os_types.AMAZONLINUX2
-
-
 class AmazonLinux2Mixin(BaseRhelMixin):
   """Class holding Amazon Linux 2 VM methods and attributes."""
   OS_TYPE = os_types.AMAZONLINUX2
@@ -1818,6 +1833,9 @@ class BaseDebianMixin(BaseLinuxMixin):
     This function is mostly useful when config files locations
     don't match across distributions (such as mysql). Packages don't
     need to implement it if this is not the case.
+
+    Args:
+      package_name: the name of the package.
     """
     package = linux_packages.PACKAGES[package_name]
     return package.AptGetPathToConfig(self)
@@ -1828,6 +1846,9 @@ class BaseDebianMixin(BaseLinuxMixin):
     This function is mostly useful when service names don't
     match across distributions (such as mongodb). Packages don't
     need to implement it if this is not the case.
+
+    Args:
+      package_name: the name of the package.
     """
     package = linux_packages.PACKAGES[package_name]
     return package.AptGetServiceName(self)
@@ -1847,7 +1868,7 @@ class BaseDebianMixin(BaseLinuxMixin):
                       'sudo tee -a %s' % (FLAGS.https_proxy, apt_proxy_file))
 
     if commands:
-      self.RemoteCommand(";".join(commands))
+      self.RemoteCommand(';'.join(commands))
 
   def IncreaseSSHConnection(self, target):
     """Increase maximum number of ssh connections on vm.
@@ -1893,14 +1914,11 @@ class BaseUbuntuMixin(BaseDebianMixin):
       self.Reboot()
 
 
-class Ubuntu1604Mixin(BaseUbuntuMixin):
+class Ubuntu1604Mixin(BaseUbuntuMixin, virtual_machine.DeprecatedOsMixin):
   """Class holding Ubuntu1604 specific VM methods and attributes."""
   OS_TYPE = os_types.UBUNTU1604
-
-
-class Ubuntu1710Mixin(BaseUbuntuMixin):
-  """Class holding Ubuntu1710 specific VM methods and attributes."""
-  OS_TYPE = os_types.UBUNTU1710
+  END_OF_LIFE = '2021-05-01'
+  ALTERNATIVE_OS = os_types.UBUNTU1804
 
 
 class Ubuntu1804Mixin(BaseUbuntuMixin):
@@ -1969,8 +1987,6 @@ class ContainerizedDebianMixin(BaseDebianMixin):
     # Has to be done after InitDocker() because it needs docker_id.
     self._CreateVmTmpDir()
 
-    # Python is needed for RobustRemoteCommands
-    self.Install('python')
     super(ContainerizedDebianMixin, self).PrepareVMEnvironment()
 
   def InitDocker(self):
@@ -2092,7 +2108,7 @@ class ContainerizedDebianMixin(BaseDebianMixin):
     Stop the docker container launched with --rm.
     """
     if self.docker_id:
-      self.RemoteHostCommand("docker stop %s" % (self.docker_id))
+      self.RemoteHostCommand('docker stop %s' % self.docker_id)
 
 
 class KernelRelease(object):
@@ -2213,6 +2229,7 @@ class LsCpuResults(object):
     self.numa_node_count = GetInt('NUMA node(s)')
     self.cores_per_socket = GetInt('Core(s) per socket')
     self.socket_count = GetInt('Socket(s)')
+    self.threads_per_core = GetInt('Thread(s) per core')
 
 
 class ProcCpuResults(object):
@@ -2250,7 +2267,7 @@ class ProcCpuResults(object):
       if processor_id is None:  # can be 0
         continue
       if processor_id in self.mappings:
-        logging.warn('Processor id %s seen twice in %s', processor_id, text)
+        logging.warning('Processor id %s seen twice in %s', processor_id, text)
         continue
       self.mappings[processor_id] = single_values
       for key, value in multiple_values.items():
@@ -2412,7 +2429,7 @@ class JujuMixin(BaseDebianMixin):
       if ss in ['error']:
         # The service has failed to deploy.
         debuglog = self.JujuRun('juju debug-log --limit 200')
-        logging.warn(debuglog)
+        logging.warning(debuglog)
         raise errors.Juju.UnitErrorException(
             'Service %s is in an error state' % service)
 
@@ -2475,8 +2492,8 @@ class JujuMixin(BaseDebianMixin):
           package.JujuInstall(self.controller, self.vm_group)
           self.controller._installed_packages.add(package_name)
     except AttributeError as e:
-      logging.warn('Failed to install package %s, falling back to Apt (%s)'
-                   % (package_name, e))
+      logging.warning('Failed to install package %s, falling back to Apt (%s)',
+                      package_name, e)
       if package_name not in self._installed_packages:
         if hasattr(package, 'AptInstall'):
           package.AptInstall(self)

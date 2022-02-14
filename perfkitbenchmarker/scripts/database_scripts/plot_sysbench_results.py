@@ -1,4 +1,3 @@
-# Lint as: python2, python3
 # Copyright 2017 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,9 +36,6 @@ How to use plot_sysbench_results:
   automatically add files as runs complete and plot after last thread count call
   finishes.
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 import datetime
 import subprocess
 from . import plot_scatter_points

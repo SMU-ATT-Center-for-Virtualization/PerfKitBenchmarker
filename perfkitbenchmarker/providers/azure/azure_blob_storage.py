@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Contains classes/functions related to Azure Blob Storage."""
 
 import datetime
@@ -43,7 +42,8 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
 
   STORAGE_NAME = azure.CLOUD
 
-  def PrepareService(self, location,
+  def PrepareService(self,
+                     location,
                      existing_storage_account_and_resource_group=None,
                      try_to_create_storage_account_and_resource_group=False):
     """See base class (without additional args).
@@ -54,15 +54,15 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
     Args:
       location: where to place our data.
       existing_storage_account_and_resource_group: An existing storage account
-          and resource group for reading objects that may have already been
-          created.
+        and resource group for reading objects that may have already been
+        created.
       try_to_create_storage_account_and_resource_group: Whether to try to create
-          the storage account and resource group in case it does not exist yet.
-          This supports invoking the object_storage_service_benchmark multiple
-          times on the same bucket name and creating the resource group the
-          first time. While this defaults to False, if there is no existing
-          storage account and resource group passed to this function via
-          existing_storage_account_and_resource_group, then one will be created.
+        the storage account and resource group in case it does not exist yet.
+        This supports invoking the object_storage_service_benchmark multiple
+        times on the same bucket name and creating the resource group the first
+        time. While this defaults to False, if there is no existing storage
+        account and resource group passed to this function via
+        existing_storage_account_and_resource_group, then one will be created.
     """
     # abs is "Azure Blob Storage"
     prefix = 'pkb%sabs' % FLAGS.run_uri
@@ -70,8 +70,8 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
     # Maybe extract existing storage account and resource group names
     existing_storage_account, existing_resource_group = None, None
     if existing_storage_account_and_resource_group:
-      existing_storage_account, existing_resource_group = \
-          existing_storage_account_and_resource_group
+      existing_storage_account, existing_resource_group = (
+          existing_storage_account_and_resource_group)
       assert existing_storage_account is not None
       assert existing_resource_group is not None
     else:
@@ -91,13 +91,12 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
 
     # We use a separate resource group so that our buckets can optionally stick
     # around after PKB runs. This is useful for things like cold reads tests
-    self.resource_group = \
-        azure_network.AzureResourceGroup(
-            resource_group_name,
-            use_existing=not try_to_create_storage_account_and_resource_group,
-            timeout_minutes=max(FLAGS.timeout_minutes,
-                                FLAGS.persistent_timeout_minutes),
-            raise_on_create_failure=raise_on_create_failure)
+    self.resource_group = azure_network.AzureResourceGroup(
+        resource_group_name,
+        use_existing=not try_to_create_storage_account_and_resource_group,
+        timeout_minutes=max(FLAGS.timeout_minutes,
+                            FLAGS.persistent_timeout_minutes),
+        raise_on_create_failure=raise_on_create_failure)
     self.resource_group.Create()
 
     # We use a different Azure storage account than the VM account
@@ -130,9 +129,13 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
       raise errors.Benchmarks.BucketCreationError(stderr)
 
   def DeleteBucket(self, bucket):
-    if not hasattr(self, 'storage_account') or not self.storage_account:
+    if (not hasattr(self, 'storage_account') or
+        not self.storage_account or
+        not hasattr(self.storage_account, 'connection_args') or
+        not self.storage_account.connection_args):
       logging.warning(
-          'storage_account not configured. Skipping DeleteBucket %s', bucket)
+          'storage_account not properly configured. Skipping DeleteBucket %s',
+          bucket)
       return
 
     vm_util.IssueCommand(
@@ -149,7 +152,8 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
                           '--account-name', self.storage_account.name,
                           '--file', src_path,
                           '--container', bucket,
-                          '--name', object_path])
+                          '--name', object_path] +
+                         self.storage_account.connection_args)
 
   def _GenerateDownloadToken(self, bucket, object_path):
     blob_store_expiry = datetime.datetime.utcnow() + datetime.timedelta(
@@ -161,7 +165,7 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
         '--name', object_path,
         '--expiry', blob_store_expiry.strftime('%Y-%m-%dT%H:%M:%SZ'),
         '--permissions', 'r'
-    ])
+    ] + self.storage_account.connection_args)
     token = stdout.strip('\n').strip('"')
     return token
 
@@ -242,12 +246,15 @@ class AzureBlobStorageService(object_storage_service.ObjectStorageService):
              connection_string=self.storage_account.connection_string))
 
   def Metadata(self, vm):
-    return {'azure_lib_version':
-            linux_packages.GetPipPackageVersion(vm, 'azure')}
+    return {
+        'azure_lib_version': linux_packages.GetPipPackageVersion(vm, 'azure')
+    }
 
   def APIScriptArgs(self):
-    return ['--azure_account=%s' % self.storage_account.name,
-            '--azure_key=%s' % self.storage_account.key]
+    return [
+        '--azure_account=%s' % self.storage_account.name,
+        '--azure_key=%s' % self.storage_account.key
+    ]
 
   @classmethod
   def APIScriptFiles(cls):

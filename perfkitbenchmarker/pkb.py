@@ -55,9 +55,6 @@ all: PerfKitBenchmarker will run all of the above stages (provision,
      the run_uri.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 import getpass
@@ -66,12 +63,13 @@ import json
 import logging
 import multiprocessing
 from os.path import isfile
+import pickle
 import random
 import re
 import sys
 import threading
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 import uuid
 
 from absl import flags
@@ -79,7 +77,7 @@ from perfkitbenchmarker import archive
 from perfkitbenchmarker import background_tasks
 from perfkitbenchmarker import benchmark_lookup
 from perfkitbenchmarker import benchmark_sets
-from perfkitbenchmarker import benchmark_spec
+from perfkitbenchmarker import benchmark_spec as bm_spec
 from perfkitbenchmarker import benchmark_status
 from perfkitbenchmarker import configs
 from perfkitbenchmarker import context
@@ -103,6 +101,8 @@ from perfkitbenchmarker import vm_util
 from perfkitbenchmarker import windows_benchmarks
 from perfkitbenchmarker.configs import benchmark_config_spec
 from perfkitbenchmarker.linux_benchmarks import cluster_boot_benchmark
+from perfkitbenchmarker.linux_benchmarks import cuda_memcpy_benchmark
+from perfkitbenchmarker.linux_packages import build_tools
 from perfkitbenchmarker.publisher import SampleCollector
 import six
 from six.moves import zip
@@ -174,6 +174,12 @@ flags.DEFINE_boolean('always_teardown_on_exception', False, 'Whether to tear '
                      'down VMs when there is exception during the PKB run. If'
                      'enabled, VMs will be torn down even if FLAGS.run_stage '
                      'does not specify teardown.')
+_RESTORE_PATH = flags.DEFINE_string('restore', None,
+                                    'Path to restore resources from.')
+_FREEZE_PATH = flags.DEFINE_string('freeze', None,
+                                   'Path to freeze resources to.')
+_COLLECT_MEMINFO = flags.DEFINE_bool('collect_meminfo', False,
+                                     'Whether to collect /proc/meminfo stats.')
 
 
 def GetCurrentUser():
@@ -223,9 +229,16 @@ flags.DEFINE_string(
     'that disk.')
 flags.DEFINE_integer('scratch_disk_size', None, 'Size, in gb, for all scratch '
                      'disks.')
+flags.DEFINE_list(
+    'data_disk_zones', [],
+    'The zone of the data disk. This is only used to provision regional pd with'
+    ' multiple zones on GCP.'
+    )
 flags.DEFINE_integer('data_disk_size', None, 'Size, in gb, for all data disks.')
 flags.DEFINE_integer('scratch_disk_iops', None,
                      'IOPS for Provisioned IOPS (SSD) volumes in AWS.')
+flags.DEFINE_integer('scratch_disk_throughput', None,
+                     'Throughput (MB/s) for volumes in AWS.')
 flags.DEFINE_integer('num_striped_disks', None,
                      'The number of data disks to stripe together to form one '
                      '"logical" data disk. This defaults to 1 '
@@ -282,6 +295,9 @@ flags.DEFINE_integer(
 flags.DEFINE_boolean(
     'boot_samples', False,
     'Whether to publish boot time samples for all tests.')
+flags.DEFINE_boolean(
+    'gpu_samples', False,
+    'Whether to publish GPU memcpy bandwidth samples for GPU tests.')
 flags.DEFINE_integer(
     'run_processes', None,
     'The number of parallel processes to use to run benchmarks.',
@@ -369,7 +385,10 @@ flags.DEFINE_boolean('record_proccpu', True,
                      'Whether to record the /proc/cpuinfo output in a sample')
 flags.DEFINE_boolean('record_cpu_vuln', True,
                      'Whether to record the CPU vulnerabilities on linux VMs')
-
+flags.DEFINE_boolean('record_gcc', True,
+                     'Whether to record the gcc version in a sample')
+flags.DEFINE_boolean('record_glibc', True,
+                     'Whether to record the glibc version in a sample')
 # Support for using a proxy in the cloud environment.
 flags.DEFINE_string('http_proxy', '',
                     'Specify a proxy for HTTP in the form '
@@ -572,8 +591,8 @@ def _CreateBenchmarkSpecs():
         logging.exception('Prerequisite check failed for %s', name)
         raise
 
-    specs.append(benchmark_spec.BenchmarkSpec.GetBenchmarkSpec(
-        benchmark_module, config, uid))
+    specs.append(
+        bm_spec.BenchmarkSpec.GetBenchmarkSpec(benchmark_module, config, uid))
 
   return specs
 
@@ -606,6 +625,22 @@ def _WriteCompletionStatusFile(benchmark_specs, status_file):
       status_dict['status_detail'] = spec.status_detail
     status_dict['flags'] = spec.config.flags
     status_file.write(json.dumps(status_dict) + '\n')
+
+
+def _SetRestoreSpec(spec: bm_spec.BenchmarkSpec) -> None:
+  """Unpickles the spec to restore resources from, if provided."""
+  restore_path = _RESTORE_PATH.value
+  if restore_path:
+    logging.info('Using restore spec at path: %s', restore_path)
+    with open(restore_path, 'rb') as spec_file:
+      spec.restore_spec = pickle.load(spec_file)
+
+
+def _SetFreezePath(spec: bm_spec.BenchmarkSpec) -> None:
+  """Sets the path to freeze resources to if provided."""
+  if _FREEZE_PATH.value:
+    spec.freeze_path = _FREEZE_PATH.value
+    logging.info('Using freeze path, %s', spec.freeze_path)
 
 
 def DoProvisionPhase(spec, timer):
@@ -679,7 +714,7 @@ class InterruptChecker():
       None
     """
     while not self.phase_status.isSet():
-      vm.UpdateInterruptibleVmStatus()
+      vm.UpdateInterruptibleVmStatus(use_api=False)
       if vm.WasInterrupted():
         return
       else:
@@ -774,6 +809,11 @@ def DoRunPhase(spec, collector, timer):
                             spec.name == cluster_boot_benchmark.BENCHMARK_NAME):
       samples.extend(cluster_boot_benchmark.GetTimeToBoot(spec.vms))
 
+    # In order to collect GPU samples one of the VMs must have both an Nvidia
+    # GPU and the nvidia-smi
+    if FLAGS.gpu_samples:
+      samples.extend(cuda_memcpy_benchmark.Run(spec))
+
     if FLAGS.record_lscpu:
       samples.extend(_CreateLscpuSamples(spec.vms))
 
@@ -781,6 +821,11 @@ def DoRunPhase(spec, collector, timer):
       samples.extend(_CreateProcCpuSamples(spec.vms))
     if FLAGS.record_cpu_vuln and run_number == 0:
       samples.extend(_CreateCpuVulnerabilitySamples(spec.vms))
+
+    if FLAGS.record_gcc:
+      samples.extend(_CreateGccSamples(spec.vms))
+    if FLAGS.record_glibc:
+      samples.extend(_CreateGlibcSamples(spec.vms))
 
     events.samples_created.send(
         events.RUN_PHASE, benchmark_spec=spec, samples=samples)
@@ -831,6 +876,8 @@ def DoTeardownPhase(spec, timer):
       resource teardown.
   """
   logging.info('Tearing down resources for benchmark %s', spec.name)
+
+  spec.Freeze()
 
   with timer.Measure('Resource Teardown'):
     spec.Delete()
@@ -905,6 +952,10 @@ def RunBenchmark(spec, collector):
       interrupt_checker = None
       try:
         with end_to_end_timer.Measure('End to End'):
+
+          _SetRestoreSpec(spec)
+          _SetFreezePath(spec)
+
           if stages.PROVISION in FLAGS.run_stage:
             DoProvisionPhase(spec, detailed_timer)
 
@@ -1022,16 +1073,8 @@ def MakeFailedRunSample(spec, error_message, run_stage_that_failed):
       'run_stage': run_stage_that_failed,
       'flags': str(flag_util.GetProvidedCommandLineFlags())
   }
-
-  # Check for preempted VMs
-  def UpdateVmStatus(vm):
-    # Setting vm.is_failed_run to True, UpdateInterruptibleVmStatus knows this
-    # is the final interruption checking. GCP only needs to check interruption
-    # when fail happens. For the the other clouds, PKB needs to check while vm
-    # is alive.
-    vm.is_failed_run = True
-    vm.UpdateInterruptibleVmStatus()
-  vm_util.RunThreaded(UpdateVmStatus, spec.vms)
+  vm_util.RunThreaded(lambda vm: vm.UpdateInterruptibleVmStatus(use_api=True),
+                      spec.vms)
 
   interruptible_vm_count = 0
   interrupted_vm_count = 0
@@ -1326,6 +1369,115 @@ def _CreateCpuVulnerabilitySamples(vms) -> List[sample.Sample]:
 
   linux_vms = [vm for vm in vms if vm.OS_TYPE in os_types.LINUX_OS_TYPES]
   return vm_util.RunThreaded(CreateSample, linux_vms)
+
+
+def _CreateGccSamples(vms):
+  """Creates samples from linux VMs of gcc version output."""
+
+  def _GetGccMetadata(vm):
+    return {
+        'name': vm.name,
+        'versiondump': build_tools.GetVersion(vm, 'gcc'),
+        'versioninfo': build_tools.GetVersionInfo(vm, 'gcc')
+    }
+
+  return [
+      sample.Sample('gcc_version', 0, '', metadata)
+      for metadata in vm_util.RunThreaded(_GetGccMetadata, vms)
+  ]
+
+
+def _CreateGlibcSamples(vms):
+  """Creates glibc samples from linux VMs of ldd output."""
+
+  def _GetGlibcVersionInfo(vm):
+    out, _ = vm.RemoteCommand('ldd --version', ignore_failure=True)
+    # return first line
+    return out.splitlines()[0] if out else None
+
+  def _GetGlibcMetadata(vm):
+    return {
+        'name': vm.name,
+        # TODO(user): Add glibc versiondump.
+        'versioninfo': _GetGlibcVersionInfo(vm)
+    }
+
+  return [
+      sample.Sample('glibc_version', 0, '', metadata)
+      for metadata in vm_util.RunThreaded(_GetGlibcMetadata, vms)
+  ]
+
+
+def _ParseMeminfo(meminfo_txt: str) -> Tuple[Dict[str, int], List[str]]:
+  """Returns the parsed /proc/meminfo data.
+
+  Response has entries such as {'MemTotal' : 32887056, 'Inactive': 4576524}. If
+  the /proc/meminfo entry has two values such as
+    MemTotal: 32887056 kB
+  checks that the last value is 'kB' If it is not then adds that line to the
+  2nd value in the tuple.
+
+  Args:
+    meminfo_txt: contents of /proc/meminfo
+
+  Returns:
+    Tuple where the first entry is a dict of the parsed keys and the second
+    are unparsed lines.
+  """
+  data: Dict[str, int] = {}
+  malformed: List[str] = []
+  for line in meminfo_txt.splitlines():
+    try:
+      key, full_value = re.split(r':\s+', line)
+      parts = full_value.split()
+      if len(parts) == 1 or (len(parts) == 2 and parts[1] == 'kB'):
+        data[key] = int(parts[0])
+      else:
+        malformed.append(line)
+    except ValueError:
+      # If the line does not match "key: value" or if the value is not an int
+      malformed.append(line)
+  return data, malformed
+
+
+@events.samples_created.connect
+def _CollectMeminfoHandler(sender: str, benchmark_spec: bm_spec.BenchmarkSpec,
+                           samples: List[sample.Sample]) -> None:
+  """Optionally creates /proc/meminfo samples.
+
+  If the flag --collect_meminfo is set appends a sample.Sample of /proc/meminfo
+  data for every VM in the run.
+
+  Parameter names cannot be changed as the method is called by events.send with
+  keyword arguments.
+
+  Args:
+    sender: Unused sender.
+    benchmark_spec: The benchmark spec.
+    samples: Generated samples that can be appended to.
+  """
+  del sender  # Unused as appending to samples with VMs from benchmark_spec
+  if not _COLLECT_MEMINFO.value:
+    return
+
+  def CollectMeminfo(vm):
+    txt, _ = vm.RemoteCommand('cat /proc/meminfo')
+    meminfo, malformed = _ParseMeminfo(txt)
+    meminfo.update({
+        'meminfo_keys': ','.join(sorted(meminfo)),
+        'meminfo_vmname': vm.name,
+        'meminfo_machine_type': vm.machine_type,
+        'meminfo_os_type': vm.OS_TYPE,
+    })
+    if malformed:
+      meminfo['meminfo_malformed'] = ','.join(sorted(malformed))
+    return sample.Sample('meminfo', 0, '', meminfo)
+
+  linux_vms = [
+      vm for vm in benchmark_spec.vms if vm.OS_TYPE in os_types.LINUX_OS_TYPES
+  ]
+
+  samples.extend(vm_util.RunThreaded(CollectMeminfo, linux_vms))
 
 
 def Main():

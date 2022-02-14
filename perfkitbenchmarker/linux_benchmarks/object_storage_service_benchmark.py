@@ -29,9 +29,6 @@ category:
   c: Single stream large object upload and download, measures throughput.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import datetime
 import enum
@@ -1372,9 +1369,15 @@ def PrepareVM(vm, service):
   vm.InstallPackages('python3-pip')
 
   # dependencies of API_TEST_SCRIPT
-  vm.RemoteCommand('sudo pip3 install --upgrade pip')
+  # Pip version 20.2.2 is the last verision before pip drops support for py3.5
+  # https://pip.pypa.io/en/stable/news/#id119
+  vm.RemoteCommand('sudo pip3 install --upgrade "pip<=20.2.2"')
   vm.RemoteCommand('sudo pip3 install absl-py')
-  vm.RemoteCommand('sudo pip3 install pyyaml')
+  # awscli 0.18 depends on a specific PyYAML version, and the AWS Ubuntu 16 AMI
+  # ships with an old python-yaml Deb package that pip3 can't upgrade so we
+  # ignore it.
+  # TODO(user): remove version when we update AWS-cli
+  vm.RemoteCommand('sudo pip3 install --ignore-installed "pyyaml<5.4"')
 
   vm.Install('openssl')
 

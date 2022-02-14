@@ -26,7 +26,6 @@ A full TeraSort benchmark run consists of the following three steps:
 
 The benchmark reports the detailed latency of executing each stage.
 """
-from __future__ import division
 
 import logging
 from typing import List
@@ -117,22 +116,13 @@ def CheckPrerequisites(benchmark_config):
         'Invalid backend {} for terasort. Not in:{}'.format(
             dpb_service_type, str(SUPPORTED_DPB_BACKENDS)))
 
-  if (dpb_service_type == dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER and
-      FLAGS.dpb_terasort_storage_type == _FS_TYPE_PERSISTENT):
-    raise errors.Config.InvalidValue(
-        '{} only supports ephemral terasort.'.format(dpb_service_type))
-
   if (FLAGS.dpb_terasort_block_size_mb and
       FLAGS.dpb_terasort_storage_type != _FS_TYPE_PERSISTENT):
     raise errors.Config.InvalidValue('You cannot set HDFS block size.')
 
 
 def Prepare(spec: benchmark_spec.BenchmarkSpec):
-  service = spec.dpb_service
-
-  if FLAGS.dpb_terasort_storage_type == _FS_TYPE_PERSISTENT:
-    run_uri = spec.uuid.split('-')[0]
-    service.CreateBucket(run_uri)
+  del spec  # unused
 
 
 def Run(spec: benchmark_spec.BenchmarkSpec):
@@ -160,8 +150,7 @@ def Run(spec: benchmark_spec.BenchmarkSpec):
   service = spec.dpb_service
 
   if FLAGS.dpb_terasort_storage_type == _FS_TYPE_PERSISTENT:
-    run_uri = spec.uuid.split('-')[0]
-    base_dir = service.PERSISTENT_FS_PREFIX + run_uri + '/'
+    base_dir = service.base_dir + '/'
   else:
     base_dir = '/'
 
@@ -219,15 +208,8 @@ def Run(spec: benchmark_spec.BenchmarkSpec):
 
 
 def Cleanup(spec: benchmark_spec.BenchmarkSpec):
-  """Cleans up the terasort benchmark.
-
-  Args:
-    spec: Spec needed to run the terasort benchmark
-  """
-  service = spec.dpb_service
-  if FLAGS.dpb_terasort_storage_type == _FS_TYPE_PERSISTENT:
-    run_uri = spec.uuid.split('-')[0]
-    service.DeleteBucket(run_uri)
+  """Cleans up the terasort benchmark."""
+  del spec  # unused
 
 
 def RunStage(spec: benchmark_spec.BenchmarkSpec, stage: str,

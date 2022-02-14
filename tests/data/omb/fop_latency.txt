@@ -1,0 +1,5 @@
+# OSU MPI_Fetch_and_op latency Test v5.7
+# Window creation: MPI_Win_allocate
+# Synchronization: MPI_Win_flush
+# Size          Latency (us)
+8                     110.70

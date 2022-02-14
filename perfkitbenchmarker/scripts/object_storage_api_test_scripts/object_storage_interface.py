@@ -1,4 +1,3 @@
-# Lint as: python2, python3
 # Copyright 2016 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,9 +14,6 @@
 
 """The generic superclass for object storage API providers."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 import abc
 import six
 

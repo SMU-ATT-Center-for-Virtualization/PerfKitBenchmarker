@@ -1,4 +1,3 @@
-# Lint as: python3
 """Aggregates the performance results from a edw benchmark.
 
 An edw benchmark, runs multiple iterations of a suite of queries.
@@ -17,7 +16,7 @@ import enum
 import functools
 import json
 import logging
-from typing import Any, Dict, List, Text
+from typing import Any, Dict, Iterable, List, Text
 
 from absl import flags
 import numpy as np
@@ -838,9 +837,9 @@ class EdwBenchmarkPerformance(object):
       execution performance (an instance of EdwBaseIterationPerformance)
   """
 
-  def __init__(self, total_iterations: int, expected_queries: List[Text]):
+  def __init__(self, total_iterations: int, expected_queries: Iterable[Text]):
     self.total_iterations = total_iterations
-    self.expected_queries = expected_queries
+    self.expected_queries = list(expected_queries)
     self.iteration_performances = {}
 
   def add_iteration_performance(self, performance: EdwBaseIterationPerformance):

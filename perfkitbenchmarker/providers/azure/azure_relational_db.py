@@ -74,6 +74,8 @@ class AzureRelationalDb(relational_db.BaseRelationalDb):
   """
   CLOUD = azure.CLOUD
 
+  database_name: str
+
   def __init__(self, relational_db_spec):
     super(AzureRelationalDb, self).__init__(relational_db_spec)
     self.instance_id = 'pkb-db-instance-' + FLAGS.run_uri
@@ -235,9 +237,9 @@ class AzureRelationalDb(relational_db.BaseRelationalDb):
       raise relational_db.RelationalDbEngineNotFoundException(
           'Unsupported engine {0}'.format(engine))
 
-  def _ApplyManagedMysqlFlags(self):
+  def _ApplyManagedDbFlags(self):
     """Applies the MySqlFlags to a managed instance."""
-    for flag in FLAGS.mysql_flags:
+    for flag in FLAGS.db_flags:
       name_and_value = flag.split('=')
       cmd = [
           azure.AZURE_PATH,
@@ -250,6 +252,8 @@ class AzureRelationalDb(relational_db.BaseRelationalDb):
       if stderr:
         raise Exception('Invalid MySQL flags: {0}.  Error {1}'.format(
             name_and_value, stderr))
+
+    self._Reboot()
 
   def _CreateMySqlOrPostgresInstance(self):
     """Creates a managed MySql or Postgres instance."""
@@ -382,7 +386,6 @@ class AzureRelationalDb(relational_db.BaseRelationalDb):
       self._CreateMySqlOrPostgresInstance()
     elif self.spec.engine == relational_db.MYSQL:
       self._CreateMySqlOrPostgresInstance()
-      self._ApplyManagedMysqlFlags()
     elif self.spec.engine == relational_db.SQLSERVER:
       self._CreateSqlServerInstance()
     else:
@@ -482,6 +485,9 @@ class AzureRelationalDb(relational_db.BaseRelationalDb):
     """Perform general post create operations on the cluster.
 
     """
+    super()._PostCreate()
+    self.port = self.GetDefaultPort()
+
     if not self.is_managed_db:
       return
     cmd = [
@@ -497,12 +503,28 @@ class AzureRelationalDb(relational_db.BaseRelationalDb):
         '--end-ip-address', '255.255.255.255'
     ]
     vm_util.IssueCommand(cmd)
-    self._AssignPortsForWriterInstance()
+    self._AssignEndpointForWriterInstance()
 
     if self.spec.engine == 'mysql' or self.spec.engine == 'postgres':
       # Azure will add @domainname after the database username
       self.spec.database_username = (self.spec.database_username + '@' +
                                      self.endpoint.split('.')[0])
+
+  def _Reboot(self):
+    """Reboot the managed db."""
+    cmd = [
+        azure.AZURE_PATH,
+        self.GetAzCommandForEngine(),
+        'server',
+        'restart',
+        '--resource-group', self.resource_group.name,
+        '--name', self.instance_id
+    ]
+    vm_util.IssueCommand(cmd)
+
+    if not self._IsInstanceReady():
+      raise Exception('Instance could not be set to ready after '
+                      'reboot')
 
   def _IsInstanceReady(self, timeout=IS_READY_TIMEOUT):
     """Return true if the instance is ready.
@@ -568,14 +590,13 @@ class AzureRelationalDb(relational_db.BaseRelationalDb):
     json_output = json.loads(stdout)
     return json_output
 
-  def _AssignPortsForWriterInstance(self):
+  def _AssignEndpointForWriterInstance(self):
     """Assigns the ports and endpoints from the instance_id to self.
 
     These will be used to communicate with the data base
     """
     server_show_json = self._AzServerShow()
     self.endpoint = server_show_json['fullyQualifiedDomainName']
-    self.port = self.GetDefaultPort()
 
   def MakePsqlConnectionString(self, database_name):
     """Makes the connection string used to connect via PSql.

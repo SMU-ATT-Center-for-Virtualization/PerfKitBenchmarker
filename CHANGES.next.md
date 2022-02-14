@@ -10,9 +10,16 @@
 -   AwsVirtualMachine.IMAGE_OWNER has been changed from a string to a list of
     strings to support images which have multiple owners e.g. AmazonLinux2 in
     opt-in regions.
+-   Remove Ubuntu1710 from `--os_types`.
+-   Remove Amazon Linux 1 from `--os_types`.
+-   Changed redis_memtier_benchmark to use redis version 6 and above. Redis
+    versions less than 6 are no longer supported.
+-   Make Ubuntu 18 the default os_type.
+-   Deprecate Ubuntu 16 as it is EOL on 2021-05-01.
 
 ### New features:
 
+-   Add ibmcloud as a new provider.
 -   Add prefix/directory support for object storage service runs.
 -   Add MaskRCNN and ReXtNet-101 to the horovod benchmark.
 -   Add Bigtable Benchmarking tutorial.
@@ -21,6 +28,18 @@
 -   Add UDP benchmarking to iPerf.
 -   Add ability to use Intel package repos.
 -   Add Ubuntu 20.04 to AWS, Azure, and GCP providers.
+-   Add support for running DPB Apache Spark benchmarks on PKB provisioned VMs
+-   Add support for AWS gp3 disks.
+-   Add ability to use Intel compiled HPCC binaries with
+    --hpcc_use_intel_compiled_hpl
+-   Add OSU MPI micro-benchmarks benchmark
+-   Add support for setting virtual NIC type for GCP VMs.
+-   Add ability to collect /proc/meminfo data with --collect_meminfo
+-   Add support for setting egress bandwidth tier for GCP VMs.
+-   Add support for Azure Ultra Disk
+-   Add `cloudharmony_network` benchmark
+-   Add GPU PingPong benchmark.
+-   Added lmod linux package.
 
 ### Enhancements:
 
@@ -45,6 +64,24 @@
 -   Added ability to install gfortran 9 with --fortran_version=9
 -   Added MSS support to netperf with `--netperf_mss`.
 -   Added nfs_service.NfsExport(vm, path) to easily NFS export a directory.
+-   AWS EFA works for Ubuntu1604.
+-   Added support for MySQL 8.0 on VMs and minimal innodb tuning.
+-   Add ability to specify version of Intel MKL with --mkl_version
+-   Added intelmpi.NfsExportIntelDirectory to NFS export /opt/intel
+-   Modify cloud_datastore_ycsb benchmark to execute YCSB on the same db entries
+    each run instead of emptying and preloading the db every time. Can set flag
+    google_datastore_repopulate=True to empty & repopulate.
+-   Enhance the cpu metric collection feature for cloud bigtable benchmark: as
+    long as there is a real workload (table loading is not counted), the cpu
+    metrics will be collected.
+-   Support wiring properties into DPB clusters with `--dpb_clusters_properties`
+    in addition to `--dpb_job_properties`.
+-   Add support for GCS and S3 I/O in PKB managed Spark and Hadoop clusters.
+-   Update FIO workload to support extraction of common benchmark parameters
+    from the scenario string.
+-   Added Intel oneAPI BaseKit to packages.
+-   Upgrade default CUDA version to 11.0.
+-   Add support for AWS IO2 EBS instances.
 
 ### Bug fixes and maintenance updates:
 
@@ -73,4 +110,16 @@
 -   Added --always_teardown_on_exception to allow pkb to perform teardown when
     there is exception at the provision|prepare|run|cleanup stage.
 -   Updates crcmod, boto, and awscli installation to pip3.
-
+-   Consolidates adding Ubuntu toolchain repo.
+-   Moved stress_ng installation to a package.
+-   Limit pip2 to v20.2.2.
+-   Limit pip3 to v20.2.2 object_storage_service_benchmark to maintain support
+    for Python 3.5.
+-   Switch to using Google Cloud Build for continuous integration.
+-   Fix PrettyPrintStreamPublisher to make "cpu_utilization_per_minute" show up
+    in the PKB results summary for cloud bigtable benchmark.
+-   Added an option to install GCP NCCL plugins.
+-   Updated hbase binding (from hbase10 to hbase12) for cloud bigtable ycsb
+    benchmark and hbase ycsb benchmark.
+-   Added retries around spurious InvalidPlacementGroup.InUse on AWS VM create.
+-   Support Redis version 6 on managed Redis datastores.

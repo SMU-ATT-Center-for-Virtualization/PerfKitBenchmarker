@@ -61,6 +61,9 @@ flags.DEFINE_string('managed_db_memory', None,
 flags.DEFINE_integer('managed_db_disk_size', None,
                      'Size of the database disk in GB.')
 flags.DEFINE_string('managed_db_disk_type', None, 'Disk type of the database.')
+flags.DEFINE_integer('managed_db_disk_iops', None,
+                     'Disk iops of the database on AWS io1 disks.')
+
 flags.DEFINE_integer('managed_db_azure_compute_units', None,
                      'Number of Dtus in the database.')
 flags.DEFINE_string('managed_db_tier', None,
@@ -75,14 +78,22 @@ flags.DEFINE_string(
 flags.DEFINE_integer('client_vm_disk_size', None,
                      'Size of the client vm disk in GB.')
 flags.DEFINE_string('client_vm_disk_type', None, 'Disk type of the client vm.')
+flags.DEFINE_integer('client_vm_disk_iops', None,
+                     'Disk iops of the database on AWS for client vm.')
 flags.DEFINE_boolean(
     'use_managed_db', True, 'If true, uses the managed MySql '
     'service for the requested cloud provider. If false, uses '
     'MySql installed on a VM.')
 flags.DEFINE_list(
-    'mysql_flags', '', 'Flags to apply to the implementation of '
+    'db_flags', '', 'Flags to apply to the implementation of '
     'MySQL on the cloud that\'s being used. Example: '
     'binlog_cache_size=4096,innodb_log_buffer_size=4294967295')
+flags.DEFINE_integer(
+    'innodb_buffer_pool_size', None,
+    'Size of the innodb buffer pool size in GB. '
+    'Defaults to #CPUs G if unset')
+flags.DEFINE_integer('innodb_log_file_size', 1000,
+                     'Size of the log file in MB. Defaults to 1000M.')
 
 
 BACKUP_TIME_REGULAR_EXPRESSION = '^\d\d\:\d\d$'
@@ -191,6 +202,8 @@ class BaseRelationalDb(resource.BaseResource):
       self.endpoint = ''
       self.spec.database_username = 'root'
       self.spec.database_password = 'perfkitbenchmarker'
+      self.innodb_buffer_pool_size = FLAGS.innodb_buffer_pool_size
+      self.innodb_log_file_size = FLAGS.innodb_log_file_size
       self.is_managed_db = False
     else:
       self.is_managed_db = True
@@ -240,6 +253,8 @@ class BaseRelationalDb(resource.BaseResource):
                                vm_groups else 'default'][0]
     if not self.is_managed_db and 'servers' in vm_groups:
       self.server_vm = vm_groups['servers'][0]
+      if not self.innodb_buffer_pool_size:
+        self.innodb_buffer_pool_size = self.server_vm.NumCpusForBenchmark()
     # TODO(jerlawson): Enable replications.
 
   def MakePsqlConnectionString(self, database_name):
@@ -303,11 +318,21 @@ class BaseRelationalDb(resource.BaseResource):
         'engine_version': self.spec.engine_version,
         'client_vm_zone': self.spec.vm_groups['clients'].vm_spec.zone,
         'use_managed_db': self.is_managed_db,
+        'instance_id': self.instance_id,
         'client_vm_disk_type':
             self.spec.vm_groups['clients'].disk_spec.disk_type,
         'client_vm_disk_size':
             self.spec.vm_groups['clients'].disk_spec.disk_size,
     }
+
+    if not self.is_managed_db:
+      metadata.update({
+          'unmanaged_db_innodb_buffer_pool_size_gb':
+              self.innodb_buffer_pool_size,
+          'unmanaged_db_innodb_log_file_size_mb':
+              self.innodb_log_file_size,
+      })
+
     if (hasattr(self.spec.db_spec, 'machine_type') and
         self.spec.db_spec.machine_type):
       metadata.update({
@@ -351,9 +376,9 @@ class BaseRelationalDb(resource.BaseResource):
       raise RelationalDbPropertyNotSet(
           'Machine type of the client VM must be set.')
 
-    if FLAGS.mysql_flags:
+    if FLAGS.db_flags:
       metadata.update({
-          'mysql_flags': FLAGS.mysql_flags,
+          'db_flags': FLAGS.db_flags,
       })
 
     return metadata
@@ -367,6 +392,9 @@ class BaseRelationalDb(resource.BaseResource):
 
     Returns: default version as a string for the given engine.
     """
+
+  def _PostCreate(self):
+    self._ApplyDbFlags()
 
   def _IsReadyUnmanaged(self):
     """Return true if the underlying resource is ready.
@@ -387,9 +415,12 @@ class BaseRelationalDb(resource.BaseResource):
     elif (self.spec.engine_version == '5.7' or
           self.spec.engine_version.startswith('5.7.')):
       mysql_name = 'mysql57'
+    elif (self.spec.engine_version == '8.0' or
+          self.spec.engine_version.startswith('8.0.')):
+      mysql_name = 'mysql80'
     else:
       raise Exception('Invalid database engine version: %s. Only 5.6 and 5.7 '
-                      'are supported.' % self.spec.engine_version)
+                      'and 8.0 are supported.' % self.spec.engine_version)
     stdout, stderr = self.server_vm.RemoteCommand(
         'sudo service %s status' % self.server_vm.GetServiceName(mysql_name))
     return stdout and not stderr
@@ -462,6 +493,9 @@ class BaseRelationalDb(resource.BaseResource):
   def _InstallMySQLServer(self):
     """Installs MySQL Server on the server vm.
 
+    https://d0.awsstatic.com/whitepapers/Database/optimizing-mysql-running-on-amazon-ec2-using-amazon-ebs.pdf
+    for minimal tuning parameters.
+
     Raises:
       Exception: If the requested engine version is unsupported, or if this
         method is called when the database is a managed one. The latter
@@ -488,15 +522,30 @@ class BaseRelationalDb(resource.BaseResource):
     elif (self.spec.engine_version == '5.7' or
           self.spec.engine_version.startswith('5.7.')):
       mysql_name = 'mysql57'
+    elif (self.spec.engine_version == '8.0' or
+          self.spec.engine_version.startswith('8.0.')):
+      mysql_name = 'mysql80'
     else:
       raise Exception('Invalid database engine version: %s. Only 5.6 and 5.7 '
-                      'are supported.' % self.spec.engine_version)
+                      'and 8.0 are supported.' % self.spec.engine_version)
     self.server_vm.Install(mysql_name)
     self.server_vm.RemoteCommand('chmod 777 %s' %
                                  self.server_vm.GetScratchDir())
     self.server_vm.RemoteCommand('sudo service %s stop' %
                                  self.server_vm.GetServiceName(mysql_name))
     self._PrepareDataDirectories(mysql_name)
+
+    # Minimal MySQL tuning; see AWS whitepaper in docstring.
+    innodb_buffer_pool_gb = self.innodb_buffer_pool_size
+    innodb_log_file_mb = self.innodb_log_file_size
+
+    self.server_vm.RemoteCommand(
+        'echo "\n'
+        f'innodb_buffer_pool_size = {innodb_buffer_pool_gb}G\n'
+        'innodb_flush_method = O_DIRECT\n'
+        'innodb_flush_neighbors = 0\n'
+        f'innodb_log_file_size = {innodb_log_file_mb}M'
+        '" | sudo tee -a %s' % self.server_vm.GetPathToConfig(mysql_name))
 
     # These (and max_connections after restarting) help avoid losing connection.
     self.server_vm.RemoteCommand(
@@ -531,22 +580,42 @@ class BaseRelationalDb(resource.BaseResource):
     self.server_vm.RemoteCommand(
         'mysql %s -e "SET GLOBAL max_connections=8000;"' %
         self.MakeMysqlConnectionString(use_localhost=True))
+    if FLAGS.ip_addresses == vm_util.IpAddressSubset.INTERNAL:
+      client_ip = self.client_vm.internal_ip
+    else:
+      client_ip = self.client_vm.ip_address
     self.server_vm.RemoteCommand(
         ('mysql %s -e "CREATE USER \'%s\'@\'%s\' IDENTIFIED BY \'%s\';"') %
         (self.MakeMysqlConnectionString(use_localhost=True),
-         self.spec.database_username, self.client_vm.ip_address,
-         self.spec.database_password))
+         self.spec.database_username, client_ip, self.spec.database_password))
     self.server_vm.RemoteCommand(
         ('mysql %s -e "GRANT ALL PRIVILEGES ON *.* TO \'%s\'@\'%s\';"') %
         (self.MakeMysqlConnectionString(use_localhost=True),
-         self.spec.database_username, self.client_vm.ip_address))
+         self.spec.database_username, client_ip))
     self.server_vm.RemoteCommand(
         'mysql %s -e "FLUSH PRIVILEGES;"' %
         self.MakeMysqlConnectionString(use_localhost=True))
 
+  def _ApplyDbFlags(self):
+    """Apply Flags on the database."""
+    if FLAGS.db_flags:
+      if self.is_managed_db:
+        self._ApplyManagedDbFlags()
+      else:
+        if self.spec.engine == MYSQL:
+          self._ApplyMySqlFlags()
+        else:
+          raise NotImplementedError('Flags is not supported on %s' %
+                                    self.spec.engine)
+
+  def _ApplyManagedDbFlags(self):
+    """Apply flags on the managed database."""
+    raise NotImplementedError('Managed Db flags is not supported for %s' %
+                              type(self).__name__)
+
   def _ApplyMySqlFlags(self):
-    if FLAGS.mysql_flags:
-      for flag in FLAGS.mysql_flags:
+    if FLAGS.db_flags:
+      for flag in FLAGS.db_flags:
         cmd = 'mysql %s -e \'SET %s;\'' % self.MakeMysqlConnectionString(), flag
         _, stderr, _ = vm_util.IssueCommand(cmd, raise_on_failure=False)
         if stderr:

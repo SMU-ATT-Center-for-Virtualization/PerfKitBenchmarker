@@ -13,9 +13,8 @@
 # limitations under the License.
 """Module containing classes related to AWS CloudWatch Logs."""
 
-from __future__ import print_function
 import json
-import tempfile
+
 from perfkitbenchmarker import resource
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.providers.aws import util
@@ -90,14 +89,13 @@ def GetLogs(region, stream_name, group_name, token=None):
 
 def GetLogStreamAsString(region, stream_name, log_group):
   """Returns the messages of the log stream as a string."""
-  with tempfile.TemporaryFile() as tf:
-    token = None
-    events = []
-    while token is None or events:
-      response = GetLogs(region, stream_name, log_group, token)
-      events = response['events']
-      token = response['nextForwardToken']
-      for event in events:
-        print(event['message'], file=tf)
-    tf.seek(0)
-    return tf.read()
+  log_lines = []
+  token = None
+  events = []
+  while token is None or events:
+    response = GetLogs(region, stream_name, log_group, token)
+    events = response['events']
+    token = response['nextForwardToken']
+    for event in events:
+      log_lines.append(event['message'])
+  return '\n'.join(log_lines)

@@ -71,6 +71,11 @@ FLAGS = flags.FLAGS
 
 SUPPORTED_DPB_BACKENDS = [dpb_service.DATAPROC, dpb_service.EMR]
 
+# TestDSIO commands
+WRITE = 'write'
+READ = 'read'
+CLEAN = 'clean'
+
 
 def GetConfig(user_config):
   return configs.LoadConfig(BENCHMARK_CONFIG, user_config, BENCHMARK_NAME)
@@ -92,8 +97,7 @@ def CheckPrerequisites(benchmark_config):
 
 
 def Prepare(benchmark_spec):
-  if FLAGS.dfsio_fs != BaseDpbService.HDFS_FS:
-    benchmark_spec.dpb_service.CreateBucket(benchmark_spec.uuid.split('-')[0])
+  del benchmark_spec  # unused
 
 
 def Run(benchmark_spec):
@@ -106,12 +110,14 @@ def Run(benchmark_spec):
     A list of samples
   """
   service = benchmark_spec.dpb_service
-  source = '{}'.format(benchmark_spec.uuid.split('-')[0])
 
-  if FLAGS.dfsio_fs != BaseDpbService.HDFS_FS:
-    source = '{}://{}'.format(FLAGS.dfsio_fs, source)
-
-  source_dir = '{}{}'.format(source, '/dfsio')
+  if FLAGS.dfsio_fs == BaseDpbService.HDFS_FS:
+    base_dir = 'hdfs:/dfsio'
+  elif service.base_dir.startswith(FLAGS.dfsio_fs):
+    base_dir = service.base_dir + '/dfsio'
+  else:
+    raise errors.Config.InvalidValue('Service type {} cannot use dfsio_fs: {}'
+                                     .format(service.type, FLAGS.dfsio_fs))
 
   results = []
   for file_size in FLAGS.dfsio_file_sizes_list:
@@ -132,27 +138,32 @@ def Run(benchmark_spec):
 
       # This order is important. Write generates the data for read and clean
       # deletes it for the next write.
-      for command in ('write', 'read', 'clean'):
-        args = [
-            '-' + command, '-nrFiles',
-            str(num_files), '-fileSize',
-            str(file_size)
-        ]
-        properties = {'test.build.data': source_dir}
-        if FLAGS.dfsio_fs != BaseDpbService.HDFS_FS:
-          properties['fs.default.name'] = source_dir
-        result = service.SubmitJob(
-            classname='org.apache.hadoop.fs.TestDFSIO',
-            properties=properties,
-            job_arguments=args,
-            job_type=dpb_service.BaseDpbService.HADOOP_JOB_TYPE)
+      for command in (WRITE, READ, CLEAN):
+        result = RunTestDfsio(
+            service, command, base_dir, num_files, file_size)
         results.append(
             sample.Sample(command + '_run_time', result.run_time, 'seconds',
                           metadata))
   return results
 
 
+def RunTestDfsio(service, command, data_dir, num_files, file_size):
+  """Run the given TestDFSIO command."""
+  args = [
+      '-' + command, '-nrFiles',
+      str(num_files), '-fileSize',
+      str(file_size)
+  ]
+  properties = {'test.build.data': data_dir}
+  if not (data_dir.startswith(BaseDpbService.HDFS_FS + ':') or
+          data_dir.startswith('/')):
+    properties['fs.default.name'] = data_dir
+  return service.SubmitJob(
+      classname='org.apache.hadoop.fs.TestDFSIO',
+      properties=properties,
+      job_arguments=args,
+      job_type=dpb_service.BaseDpbService.HADOOP_JOB_TYPE)
+
+
 def Cleanup(benchmark_spec):
-  """Cleans up the testdfsio benchmark."""
-  if FLAGS.dfsio_fs != BaseDpbService.HDFS_FS:
-    benchmark_spec.dpb_service.DeleteBucket(benchmark_spec.uuid.split('-')[0])
+  del benchmark_spec  # unused

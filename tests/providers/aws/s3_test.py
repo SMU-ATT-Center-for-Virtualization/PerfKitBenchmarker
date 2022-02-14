@@ -1,18 +1,15 @@
-# Lint as: python3
 """Tests for the AWS S3 service."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import unittest
 import mock
 
 from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.providers.aws import s3
+from tests import pkb_common_test_case
 
 
-class S3Test(unittest.TestCase):
+class S3Test(pkb_common_test_case.PkbCommonTestCase):
 
   def setUp(self):
     super(S3Test, self).setUp()

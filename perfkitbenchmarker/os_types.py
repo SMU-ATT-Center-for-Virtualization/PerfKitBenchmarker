@@ -15,7 +15,6 @@
 
 from absl import flags
 
-AMAZONLINUX1 = 'amazonlinux1'  # deprecated (b/148486659)
 AMAZONLINUX2 = 'amazonlinux2'
 CENTOS7 = 'centos7'
 CENTOS8 = 'centos8'
@@ -30,7 +29,6 @@ RHEL8 = 'rhel8'
 UBUNTU_CONTAINER = 'ubuntu_container'
 UBUNTU1604 = 'ubuntu1604'
 UBUNTU1604_CUDA9 = 'ubuntu1604_cuda9'
-UBUNTU1710 = 'ubuntu1710'
 UBUNTU1804 = 'ubuntu1804'
 UBUNTU2004 = 'ubuntu2004'
 WINDOWS2012_CORE = 'windows2012_core'
@@ -46,7 +44,6 @@ RHEL = 'rhel'
 WINDOWS = 'windows'
 
 LINUX_OS_TYPES = [
-    AMAZONLINUX1,
     AMAZONLINUX2,
     CENTOS7,
     CENTOS8,
@@ -59,9 +56,8 @@ LINUX_OS_TYPES = [
     RHEL7,
     RHEL8,
     UBUNTU_CONTAINER,
-    UBUNTU1604,
+    UBUNTU1604,  # deprecated
     UBUNTU1604_CUDA9,
-    UBUNTU1710,
     UBUNTU1804,
     UBUNTU2004,
 ]
@@ -77,6 +73,6 @@ ALL = LINUX_OS_TYPES + WINDOWS_OS_TYPES
 BASE_OS_TYPES = [CLEAR, CORE_OS, DEBIAN, RHEL, WINDOWS]
 
 # May change from time to time.
-DEFAULT = UBUNTU1604
+DEFAULT = UBUNTU1804
 
 flags.DEFINE_enum('os_type', DEFAULT, ALL, 'The VM\'s OS type.')

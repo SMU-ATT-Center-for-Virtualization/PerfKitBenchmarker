@@ -24,9 +24,6 @@ All VM specifics are self-contained and the class provides methods to
 operate on the VM: boot, shutdown, etc.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import abc
 import collections
@@ -511,8 +508,10 @@ class AzureVirtualMachine(
       self.host_series_sku = _GetSkuType(self.machine_type)
       self.host_list = None
     self.low_priority = vm_spec.low_priority
+    self.preemptible = self.low_priority
     self.low_priority_status_code = None
     self.spot_early_termination = False
+    self.ultra_ssd_enabled = False
 
     disk_spec = disk.BaseDiskSpec('azure_os_disk')
     disk_spec.disk_type = (
@@ -521,9 +520,7 @@ class AzureVirtualMachine(
       disk_spec.disk_size = vm_spec.boot_disk_size
     self.os_disk = azure_disk.AzureDisk(
         disk_spec,
-        self.name,
-        self.machine_type,
-        self.storage_account,
+        self,
         None,
         is_image=True)
 
@@ -554,6 +551,10 @@ class AzureVirtualMachine(
         if self.num_vms_per_host:
           self.host.fill_fraction += 1.0 / self.num_vms_per_host
 
+  def _RequiresUltraDisk(self):
+    return any(disk_spec.disk_type == azure_disk.ULTRA_STORAGE
+               for disk_spec in self.disk_specs)
+
   def _Create(self):
     """See base class."""
     if self.os_disk.disk_size:
@@ -572,6 +573,10 @@ class AzureVirtualMachine(
         self.user_name, '--storage-sku', self.os_disk.disk_type, '--name',
         self.name
     ] + disk_size_args + self.resource_group.args + self.nic.args + tag_args)
+
+    if self._RequiresUltraDisk():
+      self.ultra_ssd_enabled = True
+      create_cmd.extend(['--ultra-ssd-enabled'])
 
     if self.availability_zone:
       create_cmd.extend(['--zone', self.availability_zone])
@@ -703,8 +708,7 @@ class AzureVirtualMachine(
         disk_number = self.remote_disk_counter + 1 + self.max_local_disks
         self.remote_disk_counter += 1
       lun = next(self._lun_counter)
-      data_disk = azure_disk.AzureDisk(disk_spec, self.name, self.machine_type,
-                                       self.storage_account, lun)
+      data_disk = azure_disk.AzureDisk(disk_spec, self, lun)
       data_disk.disk_number = disk_number
       disks.append(data_disk)
 
@@ -757,21 +761,17 @@ class AzureVirtualMachine(
       result['num_vms_per_host'] = self.num_vms_per_host
     return result
 
-  def UpdateInterruptibleVmStatus(self):
-    """Updates the interruptible status if the VM was preempted."""
-    if self.spot_early_termination:
-      return
-    if self.low_priority and self._Exists():
-      stdout, stderr, return_code = self.RemoteCommandWithReturnCode(
-          _SCHEDULED_EVENTS_CMD)
-      if return_code:
-        logging.error('Checking Interrupt Error: %s', stderr)
-      else:
-        events = json.loads(stdout).get('Events', [])
-        self.spot_early_termination = any(
-            event.get('EventType') == 'Preempt' for event in events)
-        if self.spot_early_termination:
-          logging.info('Spotted early termination on %s', self)
+  def _UpdateInterruptibleVmStatusThroughMetadataService(self):
+    stdout, stderr, return_code = self.RemoteCommandWithReturnCode(
+        _SCHEDULED_EVENTS_CMD)
+    if return_code:
+      logging.error('Checking Interrupt Error: %s', stderr)
+    else:
+      events = json.loads(stdout).get('Events', [])
+      self.spot_early_termination = any(
+          event.get('EventType') == 'Preempt' for event in events)
+      if self.spot_early_termination:
+        logging.info('Spotted early termination on %s', self)
 
   def IsInterruptible(self):
     """Returns whether this vm is a interruptible vm (e.g. spot, preemptible).
@@ -819,11 +819,6 @@ class Debian10BasedAzureVirtualMachine(AzureVirtualMachine,
 class Ubuntu1604BasedAzureVirtualMachine(AzureVirtualMachine,
                                          linux_virtual_machine.Ubuntu1604Mixin):
   IMAGE_URN = 'Canonical:UbuntuServer:16.04-LTS:latest'
-
-
-class Ubuntu1710BasedAzureVirtualMachine(AzureVirtualMachine,
-                                         linux_virtual_machine.Ubuntu1710Mixin):
-  IMAGE_URN = 'Canonical:UbuntuServer:17.10:latest'
 
 
 class Ubuntu1804BasedAzureVirtualMachine(AzureVirtualMachine,
@@ -887,17 +882,13 @@ class BaseWindowsAzureVirtualMachine(AzureVirtualMachine,
         '--protected-settings=%s' % config
     ] + self.resource_group.args)
 
-  def UpdateInterruptibleVmStatus(self):
-    """Updates the interruptible status if the VM was preempted."""
+  def _UpdateInterruptibleVmStatusThroughMetadataService(self):
+    stdout, _ = self.RemoteCommand(_SCHEDULED_EVENTS_CMD_WIN)
+    events = json.loads(stdout).get('Events', [])
+    self.spot_early_termination = any(
+        event.get('EventType') == 'Preempt' for event in events)
     if self.spot_early_termination:
-      return
-    if self.low_priority and self._Exists():
-      stdout, _ = self.RemoteCommand(_SCHEDULED_EVENTS_CMD_WIN)
-      events = json.loads(stdout).get('Events', [])
-      self.spot_early_termination = any(
-          event.get('EventType') == 'Preempt' for event in events)
-      if self.spot_early_termination:
-        logging.info('Spotted early termination on %s', self)
+      logging.info('Spotted early termination on %s', self)
 
 
 # Azure seems to have dropped support for 2012 Server Core. It is neither here:

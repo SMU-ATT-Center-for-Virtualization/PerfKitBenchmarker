@@ -21,9 +21,6 @@ See https://cloud.google.com/sdk/gcloud/reference/beta/sql/instances/create
 for more information.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import datetime
 import json
@@ -33,6 +30,7 @@ import time
 from absl import flags
 from perfkitbenchmarker import data
 from perfkitbenchmarker import relational_db
+from perfkitbenchmarker import vm_util
 from perfkitbenchmarker.providers import gcp
 from perfkitbenchmarker.providers.gcp import gce_network
 from perfkitbenchmarker.providers.gcp import util
@@ -44,13 +42,15 @@ GCP_DATABASE_VERSION_MAPPING = {
     relational_db.MYSQL: {
         '5.5': 'MYSQL_5_5',
         '5.6': 'MYSQL_5_6',
-        '5.7': 'MYSQL_5_7'
+        '5.7': 'MYSQL_5_7',
+        '8.0': 'MYSQL_8_0'
     },
     relational_db.POSTGRES: {
         '9.6': 'POSTGRES_9_6',
         '10': 'POSTGRES_10',
         '11': 'POSTGRES_11',
-        '12': 'POSTGRES_12'
+        '12': 'POSTGRES_12',
+        '13': 'POSTGRES_13'
     },
     relational_db.SQLSERVER: {
         '2017_Standard': 'SQLSERVER_2017_Standard',
@@ -186,16 +186,6 @@ class GCPRelationalDb(relational_db.BaseRelationalDb):
 
     util.CheckGcloudResponseKnownFailures(stderr, retcode)
 
-    if FLAGS.mysql_flags:
-      cmd_string = [
-          self, 'sql', 'instances', 'patch', self.instance_id,
-          '--database-flags=%s' % ','.join(FLAGS.mysql_flags)
-      ]
-      cmd = util.GcloudCommand(*cmd_string)
-      _, stderr, _ = cmd.Issue()
-      if stderr:
-        raise Exception('Invalid MySQL flags: %s' % stderr)
-
   def _Create(self):
     """Creates the Cloud SQL instance and authorizes traffic from anywhere.
 
@@ -209,39 +199,30 @@ class GCPRelationalDb(relational_db.BaseRelationalDb):
     if self.is_managed_db:
       self._CreateGcloudSqlInstance()
     else:
-      self.endpoint = self.server_vm.ip_address
+      if FLAGS.ip_addresses == vm_util.IpAddressSubset.INTERNAL:
+        self.endpoint = self.server_vm.internal_ip
+      else:
+        self.endpoint = self.server_vm.ip_address
       if self.spec.engine == relational_db.MYSQL:
         self._InstallMySQLServer()
       else:
         raise UnsupportedDatabaseEngineException(
             'Engine {0} not supported for unmanaged databases.'.format(
                 self.spec.engine))
-      self.firewall = gce_network.GceFirewall()
-      self.firewall.AllowPort(
-          self.server_vm, 3306, source_range=[self.client_vm.ip_address])
+
+      if FLAGS.ip_addresses != vm_util.IpAddressSubset.INTERNAL:
+        self.firewall = gce_network.GceFirewall()
+        self.firewall.AllowPort(
+            self.server_vm, 3306, source_range=[self.client_vm.ip_address])
       self.unmanaged_db_exists = True
-      self._ApplyMySqlFlags()
 
   def _GetHighAvailabilityFlag(self):
-    """Returns a flag that enables high-availability for the specified engine.
+    """Returns a flag that enables high-availability.
 
     Returns:
       Flag (as string) to be appended to the gcloud sql create command.
-
-    Raises:
-      UnsupportedDatabaseEngineException:
-        if engine does not support high availability.
     """
-    if self.spec.engine == relational_db.MYSQL:
-      self.replica_instance_id = 'replica-' + self.instance_id
-      return '--failover-replica-name=' + self.replica_instance_id
-    elif (self.spec.engine == relational_db.POSTGRES or
-          self.spec.engine == relational_db.SQLSERVER):
-      return '--availability-type=REGIONAL'
-    else:
-      raise UnsupportedDatabaseEngineException(
-          'High availability not supported on engine {0}'.format(
-              self.spec.engine))
+    return '--availability-type=REGIONAL'
 
   def _ValidateSpec(self):
     """Validates PostgreSQL spec for CPU and memory.
@@ -381,6 +362,7 @@ class GCPRelationalDb(relational_db.BaseRelationalDb):
     Returns:
       True if the resource was ready in time, False if the wait timed out.
     """
+    self.port = self._GetDefaultPort(self.spec.engine)
     if not self.is_managed_db:
       return self._IsReadyUnmanaged()
 
@@ -395,7 +377,6 @@ class GCPRelationalDb(relational_db.BaseRelationalDb):
     stdout, _, _ = cmd.Issue()
     json_output = json.loads(stdout)
     self.endpoint = self._ParseEndpoint(json_output)
-    self.port = self._GetDefaultPort(self.spec.engine)
     return True
 
   def _ParseEndpoint(self, describe_instance_json):
@@ -418,6 +399,8 @@ class GCPRelationalDb(relational_db.BaseRelationalDb):
   def _PostCreate(self):
     """Creates the PKB user and sets the password.
     """
+    super()._PostCreate()
+
     if not self.is_managed_db:
       return
 
@@ -437,6 +420,36 @@ class GCPRelationalDb(relational_db.BaseRelationalDb):
           '--host=dummy_host', '--instance={0}'.format(self.instance_id),
           '--password={0}'.format(self.spec.database_password))
       _, _, _ = cmd.Issue()
+
+  def _ApplyManagedDbFlags(self):
+    cmd_string = [
+        self, 'sql', 'instances', 'patch', self.instance_id,
+        '--database-flags=%s' % ','.join(FLAGS.db_flags)
+    ]
+    cmd = util.GcloudCommand(*cmd_string)
+    _, stderr, _ = cmd.Issue()
+    if stderr:
+      # sql instance patch outputs information to stderr
+      # Reference to GCP documentation
+      # https://cloud.google.com/sdk/gcloud/reference/sql/instances/patch
+      # Example output
+      # Updated [https://sqladmin.googleapis.com/].
+      if 'Updated' in stderr:
+        return
+      raise Exception('Invalid flags: %s' % stderr)
+
+    self._Reboot()
+
+  def _Reboot(self):
+    cmd_string = [
+        self, 'sql', 'instances', 'restart', self.instance_id
+    ]
+    cmd = util.GcloudCommand(*cmd_string)
+    cmd.Issue()
+
+    if not self._IsReady():
+      raise Exception('Instance could not be set to ready after '
+                      'reboot')
 
   @staticmethod
   def GetDefaultEngineVersion(engine):

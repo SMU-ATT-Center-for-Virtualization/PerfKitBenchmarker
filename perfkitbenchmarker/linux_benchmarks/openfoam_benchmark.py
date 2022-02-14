@@ -1,4 +1,4 @@
-# Copyright 2019 PerfKitBenchmarker Authors. All rights reserved.
+# Copyright 2021 PerfKitBenchmarker Authors. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,9 +25,6 @@ cores before attempting to run.
 
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 import collections
 import logging
 import posixpath
@@ -47,29 +44,30 @@ _CASE_PATHS = {
 assert _DEFAULT_CASE in _CASE_PATHS
 
 FLAGS = flags.FLAGS
-flags.DEFINE_enum('openfoam_case', _DEFAULT_CASE,
-                  sorted(list(_CASE_PATHS.keys())),
-                  'Name of the OpenFOAM case to run.')
-flags.DEFINE_list('openfoam_dimensions', ['20_8_8'], 'Dimensions of the case.')
-flags.DEFINE_integer(
+_CASE = flags.DEFINE_enum('openfoam_case', _DEFAULT_CASE,
+                          sorted(list(_CASE_PATHS.keys())),
+                          'Name of the OpenFOAM case to run.')
+_DIMENSIONS = flags.DEFINE_list('openfoam_dimensions', ['20_8_8'],
+                                'Dimensions of the case.')
+_THREADS_PER_VM = flags.DEFINE_integer(
     'openfoam_num_threads_per_vm', None,
     'The number of threads per VM to run OpenFOAM with. If None, defaults to '
     'half the total number of vCPUs available.')
-flags.DEFINE_string(
+_MPI_MAPPING = flags.DEFINE_string(
     'openfoam_mpi_mapping', 'core:SPAN',
     'Mpirun process mapping to use as arguments to "mpirun --map-by".')
-flags.DEFINE_enum(
+_DECOMP = flags.DEFINE_enum(
     'openfoam_decomp_method', 'scotch', ['scotch', 'hierarchical', 'simple'],
     'Decomposition method to use in decomposePar. See: '
     'https://cfd.direct/openfoam/user-guide/v7-running-applications-parallel/')
-flags.DEFINE_integer(
+_MAX_GLOBAL_CELLS = flags.DEFINE_integer(
     'openfoam_max_global_cells', 200 * 1000 * 1000,
     'The maximum number of refinement cells to use in snappHexMeshDict. See: '
     'https://cfd.direct/openfoam/user-guide/v6-snappyhexmesh/')
 
 BENCHMARK_NAME = 'openfoam'
 _BENCHMARK_ROOT = '$HOME/OpenFOAM/run'
-BENCHMARK_CONFIG = """
+BENCHMARK_CONFIG = f"""
 openfoam:
   description: Runs an OpenFOAM benchmark.
   vm_groups:
@@ -93,16 +91,16 @@ openfoam:
         GCP:
           disk_type: nfs
           nfs_managed: False
-          mount_point: {path}
+          mount_point: {_BENCHMARK_ROOT}
         Azure:
           disk_type: nfs
           nfs_managed: False
-          mount_point: {path}
+          mount_point: {_BENCHMARK_ROOT}
         AWS:
           disk_type: nfs
           nfs_managed: False
-          mount_point: {path}
-""".format(path=_BENCHMARK_ROOT)
+          mount_point: {_BENCHMARK_ROOT}
+"""
 _MACHINE_FILE = posixpath.join(_BENCHMARK_ROOT, 'MACHINEFILE')
 _RUN_SCRIPT = 'Allrun'
 _BLOCK_MESH_DICT = 'system/blockMeshDict'
@@ -153,7 +151,7 @@ def _ParseDimensions(dimensions):
   if not all(value.isdigit() for value in dimensions):
     raise errors.Config.InvalidValue(
         'Expected list of ints separated by "_" in --openfoam_dimensions '
-        'but received %s.' % dimensions)
+        f'but received {dimensions}.')
   return ' '.join(dimensions)
 
 
@@ -193,7 +191,7 @@ def _GetSample(line):
     runtime_seconds = int(float(runtime_output))
   except:
     raise ValueError(
-        'Output "%s" does not match expected format "real 100.00".' % line)
+        f'Output "{line}" does not match expected format "real 100.00".')
   logging.info('Runtime of %s seconds from [%s, %s]', runtime_seconds,
                runtime_category, runtime_output)
   runtime_category = 'time_' + runtime_category
@@ -224,7 +222,7 @@ def _GetOpenfoamVersion(vm):
 
 def _GetWorkingDirPath():
   """Get the base directory name of the case being run."""
-  case_dir_name = posixpath.basename(_CASE_PATHS[FLAGS.openfoam_case])
+  case_dir_name = posixpath.basename(_CASE_PATHS[_CASE.value])
   return posixpath.join(_BENCHMARK_ROOT, case_dir_name)
 
 
@@ -243,8 +241,8 @@ def _SetDictEntry(vm, key, value, dict_file_name):
     dict_file_name: String; name of the file to set the specified entry. This
       file should be in the working directory. Example: system/snappyHexMeshDict
   """
-  vm.RemoteCommand('foamDictionary -entry {key} -set "{value}" {file}'.format(
-      key=key, value=value, file=_GetPath(dict_file_name)))
+  vm.RemoteCommand(
+      f'foamDictionary -entry {key} -set "{value}" {_GetPath(dict_file_name)}')
 
 
 def _UseMpi(vm, num_processes, mapping):
@@ -262,13 +260,10 @@ def _UseMpi(vm, num_processes, mapping):
   run_script = _GetPath(_RUN_SCRIPT)
   vm_util.ReplaceText(
       vm, 'runParallel', 'mpirun '
-      '-hostfile {machinefile} '
+      f'-hostfile {_MACHINE_FILE} '
       '-mca btl ^openib '
-      '--map-by {mapping} '
-      '-np {num_processes}'.format(
-          machinefile=_MACHINE_FILE,
-          mapping=mapping,
-          num_processes=num_processes), run_script, '|')
+      f'--map-by {mapping} '
+      f'-np {num_processes}', run_script, '|')
   vm_util.ReplaceText(vm, '^mpirun.*', '& -parallel', run_script)
 
 
@@ -289,14 +284,14 @@ def _GetBaseCommand(command):
   for base_command in _RUN_SCRIPT_VALID_COMMANDS:
     if base_command in command:
       return base_command
-  raise ValueError('Unrecognized command in "%s", please add it to '
-                   '_RUN_SCRIPT_VALID_COMMANDS' % command)
+  raise ValueError(f'Unrecognized command in "{command}", please add it to '
+                   '_RUN_SCRIPT_VALID_COMMANDS')
 
 
 def _RunCommand(vm, command):
   """Runs a valid OpenFOAM command, returning samples."""
-  _, output = vm.RemoteCommand('cd %s && time -p %s' %
-                               (_GetWorkingDirPath(), command))
+  _, output = vm.RemoteCommand(
+      f'cd {_GetWorkingDirPath()} && time -p {command}')
   results = _GetSamples(output)
 
   for result in results:
@@ -330,7 +325,7 @@ def _ParseRunCommands(vm, remote_run_file):
 
 def _GenerateFullRuntimeSamples(samples):
   """Append the full runtime results to samples."""
-  assert samples, '%s should not be an empty list' % samples
+  assert samples, f'{samples} should not be an empty list'
   counts = collections.Counter()
   for s in samples:
     counts[s.metric] += s.value
@@ -352,12 +347,12 @@ def _RunCase(master_vm, dimensions):
   Returns:
     A list of performance samples for the given dimensions.
   """
-  dims_entry = ('( hex ( 0 1 2 3 4 5 6 7 ) ( {dimensions} ) '
-                'simpleGrading ( 1 1 1 ) )').format(
-                    dimensions=_ParseDimensions(dimensions))
+  dims_entry = ('( hex ( 0 1 2 3 4 5 6 7 ) '
+                f'( {_ParseDimensions(dimensions)} ) '
+                'simpleGrading ( 1 1 1 ) )')
   _SetDictEntry(master_vm, 'blocks', dims_entry, _BLOCK_MESH_DICT)
 
-  master_vm.RemoteCommand('cd %s && ./Allclean' % _GetWorkingDirPath())
+  master_vm.RemoteCommand(f'cd {_GetWorkingDirPath()} && ./Allclean')
 
   results = []
   run_script_path = _GetPath(_RUN_SCRIPT)
@@ -391,14 +386,14 @@ def Run(benchmark_spec):
 
   # Run configuration metadata:
   num_cpus_available = num_vms * master_vm.NumCpusForBenchmark()
-  if FLAGS.openfoam_num_threads_per_vm is None:
-    num_cpus_to_use = num_cpus_available // 2
+  if _THREADS_PER_VM.value:
+    num_cpus_to_use = num_vms * _THREADS_PER_VM.value
   else:
-    num_cpus_to_use = num_vms * FLAGS.openfoam_num_threads_per_vm
-  case_name = FLAGS.openfoam_case
-  mpi_mapping = FLAGS.openfoam_mpi_mapping
-  decomp_method = FLAGS.openfoam_decomp_method
-  max_global_cells = FLAGS.openfoam_max_global_cells
+    num_cpus_to_use = num_cpus_available // 2
+  case_name = _CASE.value
+  mpi_mapping = _MPI_MAPPING.value
+  decomp_method = _DECOMP.value
+  max_global_cells = _MAX_GLOBAL_CELLS.value
   openfoam_version = _GetOpenfoamVersion(master_vm)
   openmpi_version = openmpi.GetMpiVersion(master_vm)
   common_metadata = {
@@ -416,23 +411,22 @@ def Run(benchmark_spec):
   logging.info('Common metadata: %s', common_metadata)
 
   # Copy the run directory.
-  master_vm.RemoteCommand('cp -r {case_path} {destination}'.format(
-      case_path=posixpath.join(openfoam.OPENFOAM_ROOT, _CASE_PATHS[case_name]),
-      destination=_BENCHMARK_ROOT))
+  case_path = posixpath.join(openfoam.OPENFOAM_ROOT, _CASE_PATHS[case_name])
+  master_vm.RemoteCommand(f'cp -r {case_path} {_BENCHMARK_ROOT}')
 
   # Configure common parameters.
   _SetDictEntry(master_vm, 'method', decomp_method, _DECOMPOSE_DICT)
   _SetDictEntry(master_vm, 'numberOfSubdomains', num_cpus_to_use,
                 _DECOMPOSE_DICT)
-  _SetDictEntry(master_vm, 'hierarchicalCoeffs.n',
-                '({} 1 1)'.format(num_cpus_to_use), _DECOMPOSE_DICT)
+  _SetDictEntry(master_vm, 'hierarchicalCoeffs.n', f'({num_cpus_to_use} 1 1)',
+                _DECOMPOSE_DICT)
   _SetDictEntry(master_vm, 'castellatedMeshControls.maxGlobalCells',
                 max_global_cells, _SNAPPY_HEX_MESH_DICT)
   _UseMpi(master_vm, num_cpus_to_use, mpi_mapping)
 
   # Run and gather samples.
   samples = []
-  for dimensions in FLAGS.openfoam_dimensions:
+  for dimensions in _DIMENSIONS.value:
     results = _RunCase(master_vm, dimensions)
     # Update every case run with common metadata.
     for result in results:

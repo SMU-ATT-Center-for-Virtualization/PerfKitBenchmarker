@@ -1,0 +1,5 @@
+# OSU MPI_Compare_and_swap latency Test v5.7
+# Window creation: MPI_Win_allocate
+# Synchronization: MPI_Win_flush
+# Size          Latency (us)
+8                     100.65

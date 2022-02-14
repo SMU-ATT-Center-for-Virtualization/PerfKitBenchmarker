@@ -200,10 +200,22 @@ class Resource(object):
   class RetryableDeletionError(Error):
     pass
 
+  class GetError(Error):
+    """An error on get which is not retryable."""
+    pass
+
   class RetryableGetError(Error):
     pass
 
   class SubclassNotFoundError(Error):
+    pass
+
+  class RestoreError(Error):
+    """Errors while restoring a resource."""
+    pass
+
+  class FreezeError(Error):
+    """Errors while freezing a resource."""
     pass
 
 

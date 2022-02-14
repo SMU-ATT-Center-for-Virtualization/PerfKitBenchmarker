@@ -13,9 +13,6 @@
 # limitations under the License.
 
 """Module containing fio installation, cleanup, parsing functions."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 import configparser
@@ -61,9 +58,11 @@ def GetFioExec():
 
 def _Install(vm):
   """Installs the fio package on the VM."""
+  # TODO(user): Upgrade to python3.
   for p in ['build_tools', 'python', 'pip', 'python_dev']:
     vm.Install(p)
-  vm.RemoteCommand('sudo pip install pandas numpy')
+  for package in ('numpy', 'pandas'):
+    vm.RemoteCommand(f'sudo pip install {package}')
   vm.RemoteCommand('git clone {0} {1}'.format(GIT_REPO, FIO_DIR))
   vm.RemoteCommand('cd {0} && git checkout {1}'.format(FIO_DIR, GIT_TAG))
   vm.RemoteCommand('cd {0} && ./configure && make'.format(FIO_DIR))

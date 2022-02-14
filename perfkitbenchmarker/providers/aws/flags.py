@@ -21,6 +21,8 @@ flags.DEFINE_string(
     'attempt to use. Defaults are OS specific.')
 flags.DEFINE_integer('aws_provisioned_iops', None,
                      'IOPS for Provisioned IOPS (SSD) volumes in AWS.')
+flags.DEFINE_integer('aws_provisioned_throughput', None,
+                     'Provisioned throughput (MB/s) for (SSD) volumes in AWS.')
 
 flags.DEFINE_string('aws_dax_node_type', 'dax.r4.large',
                     'The node type used for creating AWS DAX cluster.')
@@ -92,9 +94,12 @@ flags.DEFINE_string(
 flags.DEFINE_string('eksctl', 'eksctl', 'Path to eksctl.')
 flags.DEFINE_enum('redshift_client_interface', 'JDBC', ['JDBC'],
                   'The Runtime Interface used when interacting with Redshift.')
-flags.DEFINE_enum('athena_client_interface', 'CLI', ['CLI', 'JAVA'],
+flags.DEFINE_enum('athena_client_interface', 'JAVA', ['JAVA'],
                   'The Runtime Interface used when interacting with Athena.')
 flags.DEFINE_string('athena_query_timeout', '600', 'Query timeout in seconds.')
+flags.DEFINE_string('athena_workgroup', '',
+                    'Use athena workgroup to separate applications and choose '
+                    'execution configuration like the engine version.')
 flags.DEFINE_boolean(
     'athena_metrics_collection', False,
     'Should the cloud watch metrics be collected for Athena query executions.')
@@ -102,3 +107,6 @@ flags.DEFINE_boolean(
     'athena_workgroup_delete', True,
     'Should the dedicated athena workgroups be deleted or kept alive for investigations.'
 )
+flags.DEFINE_enum('aws_credit_specification', None,
+                  ['CpuCredits=unlimited', 'CpuCredits=standard'],
+                  'Credit specification for burstable vms.')

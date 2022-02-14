@@ -20,9 +20,6 @@ See http://msdn.microsoft.com/en-us/library/azure/dn790303.aspx for more
 information about azure disks.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import itertools
 import json
@@ -44,6 +41,7 @@ MAX_DRIVE_SUFFIX_LENGTH = 2  # Last allowable device is /dev/sdzz.
 
 PREMIUM_STORAGE = 'Premium_LRS'
 STANDARD_DISK = 'Standard_LRS'
+ULTRA_STORAGE = 'UltraSSD_LRS'
 
 DISK_TYPE = {disk.STANDARD: STANDARD_DISK, disk.REMOTE_SSD: PREMIUM_STORAGE}
 
@@ -65,6 +63,12 @@ AZURE_NVME_TYPES = [
     r'(Standard_L[0-9]+s_v2)',
 ]
 
+# https://docs.microsoft.com/en-us/azure/virtual-machines/azure-vms-no-temp-disk
+# Dv4 and Dsv4 VMs do not have tmp/OS disk while Dv3, Dsv3, and Ddv4 VMs do.
+AZURE_NO_TMP_DISK_TYPES = [
+    r'(Standard_D[0-9]+s?_v4)', r'(Standard_E[0-9]+s?_v4)',
+]
+
 
 def _ProductWithIncreasingLength(iterable, max_length):
   """Yields increasing length cartesian products of iterable."""
@@ -76,13 +80,10 @@ def _ProductWithIncreasingLength(iterable, max_length):
 def _GenerateDrivePathSuffixes():
   """Yields drive path suffix strings.
 
-  Drive path suffixes in the form 'c', 'd', ..., 'z', 'aa', 'ab', etc.
-  Note that because we need the first suffix to be 'c', we need to
-  fast-forward the iterator by two before yielding. Why start at 'c'?
-  The os-disk will be /dev/sda, and the temporary disk will be /dev/sdb:
+  Drive path suffixes in the form 'a', 'b', 'c', 'd', ..., 'z', 'aa', 'ab', etc.
+  Note: the os-disk will be /dev/sda, and the temporary disk will be /dev/sdb:
   https://docs.microsoft.com/en-us/azure/virtual-machines/linux/faq#can-i-use-the-temporary-disk-devsdb1-to-store-data
-
-  Therefore, any additional remote disks will need to begin at 'c'.
+  Some newer VMs (e.g. Dsv4 VMs) do not have temporary disks.
 
   The linux kernel code that determines this naming can be found here:
   https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/scsi/sd.c?h=v2.6.37#n2262
@@ -95,9 +96,6 @@ def _GenerateDrivePathSuffixes():
   products = _ProductWithIncreasingLength(
       character_range, MAX_DRIVE_SUFFIX_LENGTH)
 
-  # We want to start at 'c', so fast-forward the iterator by two.
-  next(products)
-  next(products)
   for p in products:
     yield ''.join(chr(c) for c in p)
 
@@ -123,6 +121,13 @@ def LocalDriveIsNvme(machine_type):
       for machine_series in AZURE_NVME_TYPES)
 
 
+def HasTempDrive(machine_type):
+  """Check if the machine type has the temp drive (sdb)."""
+  return not any(
+      re.search(machine_series, machine_type)
+      for machine_series in AZURE_NO_TMP_DISK_TYPES)
+
+
 class AzureDisk(disk.BaseDisk):
   """Object representing an Azure Disk."""
 
@@ -130,22 +135,21 @@ class AzureDisk(disk.BaseDisk):
 
   def __init__(self,
                disk_spec,
-               vm_name,
-               machine_type,
-               storage_account,
+               vm,
                lun,
                is_image=False):
     super(AzureDisk, self).__init__(disk_spec)
     self.host_caching = FLAGS.azure_host_caching
-    self.name = vm_name + str(lun)
-    self.vm_name = vm_name
+    self.vm = vm
+    self.vm_name = vm.name
+    self.name = self.vm_name + str(lun)
     self.resource_group = azure_network.GetResourceGroup()
-    self.storage_account = storage_account
+    self.storage_account = vm.storage_account
     # lun is Azure's abbreviation for "logical unit number"
     self.lun = lun
     self.is_image = is_image
     self._deleted = False
-    self.machine_type = machine_type
+    self.machine_type = vm.machine_type
     if self.disk_type == PREMIUM_STORAGE:
       self.metadata.update({
           disk.MEDIA: disk.SSD,
@@ -159,7 +163,7 @@ class AzureDisk(disk.BaseDisk):
           HOST_CACHING: self.host_caching,
       })
     elif self.disk_type == disk.LOCAL:
-      media = disk.SSD if LocalDiskIsSSD(machine_type) else disk.HDD
+      media = disk.SSD if LocalDiskIsSSD(self.machine_type) else disk.HDD
 
       self.metadata.update({
           disk.MEDIA: media,
@@ -170,6 +174,11 @@ class AzureDisk(disk.BaseDisk):
     """Creates the disk."""
     assert not self.is_image
 
+    if self.disk_type == ULTRA_STORAGE and not self.vm.availability_zone:
+      raise Exception(f'Azure Ultradisk is being created in zone "{self.zone}"'
+                      'which was not specified to have an availability zone. '
+                      'Availability zones are specified with zone-\\d  e.g. '
+                      'eastus1-2 for availability zone 2 in zone eastus1')
     with self._lock:
       _, _, retcode = vm_util.IssueCommand([
           azure.AZURE_PATH, 'vm', 'disk', 'attach', '--new', '--caching',
@@ -236,6 +245,9 @@ class AzureDisk(disk.BaseDisk):
       return '/dev/sdb'
     else:
       try:
-        return '/dev/sd%s' % REMOTE_DRIVE_PATH_SUFFIXES[self.lun]
+        start_index = 1  # the os drive is always at index 0; skip the OS drive.
+        if HasTempDrive(self.machine_type):
+          start_index += 1
+        return '/dev/sd%s' % REMOTE_DRIVE_PATH_SUFFIXES[start_index + self.lun]
       except IndexError:
         raise TooManyAzureDisksError()

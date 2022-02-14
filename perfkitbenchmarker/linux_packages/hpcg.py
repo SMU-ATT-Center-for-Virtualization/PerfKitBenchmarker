@@ -81,13 +81,13 @@ def AptInstall(vm):
     vm: vm to target
   """
   vm.Install('wget')
-  vm.InstallPackages('numactl')
+  vm.InstallPackages('numactl libnuma-dev')
   vm.Install('cuda_toolkit')
   # HPCG CUDA 10 requires Open MPI 3.1 and HPCG CUDA 11 requires Open MPI 4.0
   vm.Install('openmpi')
 
   if FLAGS.cuda_toolkit_version not in CUDA_FILES:
-    raise cuda_toolkit.UnsupportedCudaVersionException(
+    raise cuda_toolkit.UnsupportedCudaVersionError(
         f'HPCG only supports CUDA {sorted(CUDA_FILES)}')
   hpcg_tar, hpcg_binary = CUDA_FILES[FLAGS.cuda_toolkit_version]
   vm.InstallPreprovisionedPackageData(PACKAGE_NAME, [hpcg_tar],

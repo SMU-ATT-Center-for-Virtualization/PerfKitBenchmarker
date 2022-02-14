@@ -18,7 +18,9 @@
 
 import re
 from absl import flags
+from absl import logging
 from perfkitbenchmarker import flag_util
+from perfkitbenchmarker import os_types
 from perfkitbenchmarker import regex_util
 
 
@@ -80,9 +82,12 @@ flag_util.DEFINE_integerlist('gpu_clock_speeds',
 flags.DEFINE_boolean('gpu_autoboost_enabled', None,
                      'whether gpu autoboost is enabled')
 
-flags.DEFINE_string('nvidia_driver_version', None,
+flags.DEFINE_string('nvidia_driver_version', '450.80.02',
                     'The version of nvidia driver to install. '
-                    'For example, "418.67" or "418.87.01"')
+                    'For example, "418.67" or "418.87.01."')
+flags.DEFINE_boolean('nvidia_driver_force_install', False,
+                     'Whether to install NVIDIA driver, even if it is already '
+                     'installed.')
 
 flags.DEFINE_string('nvidia_driver_x_library_path', '/usr/lib',
                     'X library path for nvidia driver installation')
@@ -121,6 +126,9 @@ def CheckNvidiaGpuExists(vm):
   Returns:
     True or False depending on whether NVIDIA GPU exists.
   """
+  # PKB only supports NVIDIA driver on DEBIAN for now.
+  if vm.BASE_OS_TYPE != os_types.DEBIAN:
+    return False
   vm.Install('pciutils')
   output, _ = vm.RemoteCommand('sudo lspci', should_log=True)
   regex = re.compile(r'3D controller: NVIDIA Corporation')
@@ -136,6 +144,9 @@ def CheckNvidiaSmiExists(vm):
   Returns:
     True or False depending on whether nvidia-smi command exists.
   """
+  # PKB only supports NVIDIA driver on DEBIAN for now.
+  if vm.BASE_OS_TYPE != os_types.DEBIAN:
+    return False
   resp, _ = vm.RemoteHostCommand('command -v nvidia-smi',
                                  ignore_failure=True,
                                  suppress_warning=True)
@@ -464,6 +475,10 @@ def Install(vm):
   """
   version_to_install = FLAGS.nvidia_driver_version
   if not version_to_install:
+    logging.info('--nvidia_driver_version unset. Not installing.')
+    return
+  elif not FLAGS.nvidia_driver_force_install and CheckNvidiaSmiExists(vm):
+    logging.warn('NVIDIA drivers already detected. Not installing.')
     return
 
   location = ('{base}/{version}/NVIDIA-Linux-x86_64-{version}.run'

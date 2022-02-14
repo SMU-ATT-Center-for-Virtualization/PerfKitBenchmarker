@@ -13,9 +13,6 @@
 # limitations under the License.
 """Container for all data required for a benchmark to run."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import contextlib
 import copy
@@ -170,6 +167,9 @@ class BenchmarkSpec(object):
     self.vpn_gateways_lock = threading.Lock()
     self.vpns_lock = threading.Lock()
 
+    self.restore_spec = None
+    self.freeze_path = None
+
     # Modules can't be pickled, but functions can, so we store the functions
     # necessary to run the benchmark.
     self.BenchmarkPrepare = benchmark_module.Prepare
@@ -236,7 +236,10 @@ class BenchmarkSpec(object):
 
     # If the dpb service is un-managed, the provisioning needs to be handed
     # over to the vm creation module.
-    if dpb_service_type == dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER:
+    if dpb_service_type in [
+        dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER,
+        dpb_service.UNMANAGED_SPARK_CLUSTER
+    ]:
       # Ensure non cluster vms are not present in the spec.
       if self.vms_to_boot:
         raise Exception('Invalid Non cluster vm group {0} when benchmarking '
@@ -262,12 +265,17 @@ class BenchmarkSpec(object):
     relational_db_class = (relational_db.GetRelationalDbClass(cloud))
     self.relational_db = relational_db_class(self.config.relational_db)
 
-  def ConstructNonRelationalDb(self):
-    """Create the non_relational db and create groups for its vms."""
+  def ConstructNonRelationalDb(self) -> None:
+    """Creates the non_relational db."""
     db_spec: non_relational_db.BaseNonRelationalDbSpec = self.config.non_relational_db
-    if db_spec is None:
+    if not db_spec:
       return
-    logging.info('Constructing non-relational db instance with spec: %s.',
+    if self.restore_spec:
+      logging.info('Getting non_relational_db instance from restore_spec: %s.',
+                   self.restore_spec.non_relational_db)
+      self.non_relational_db = copy.copy(self.restore_spec.non_relational_db)
+      return
+    logging.info('Constructing non_relational_db instance with spec: %s.',
                  db_spec)
     service_type = db_spec.service_type
     non_relational_db_class = non_relational_db.GetNonRelationalDbClass(
@@ -275,9 +283,14 @@ class BenchmarkSpec(object):
     self.non_relational_db = non_relational_db_class.FromSpec(db_spec)
 
   def ConstructSpanner(self) -> None:
-    """Create the spanner instance."""
+    """Creates the spanner instance."""
     spanner_spec: gcp_spanner.SpannerSpec = self.config.spanner
-    if spanner_spec is None:
+    if not spanner_spec:
+      return
+    if self.restore_spec:
+      logging.info('Getting spanner instance from restore_spec: %s.',
+                   self.restore_spec.spanner)
+      self.spanner = copy.copy(self.restore_spec.spanner)
       return
     logging.info('Constructing spanner instance with spec: %s.', spanner_spec)
     spanner_class = gcp_spanner.GetSpannerClass(spanner_spec.service_type)
@@ -436,8 +449,8 @@ class BenchmarkSpec(object):
         # In the event that we need to create multiple disks from the same
         # DiskSpec, we need to ensure that they have different mount points.
         if (disk_count > 1 and disk_spec.mount_point):
-          for i, spec in enumerate(vm.disk_specs):
-            spec.mount_point += str(i)
+          for i, vm_disk_spec in enumerate(vm.disk_specs):
+            vm_disk_spec.mount_point += str(i)
       vms.append(vm)
 
     return vms
@@ -524,8 +537,9 @@ class BenchmarkSpec(object):
     # In the case of an un-managed yarn cluster, for hadoop software
     # installation, the dpb service instance needs access to constructed
     # master group and worker group.
-    if (self.config.dpb_service and self.config.dpb_service.service_type ==
-        dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER):
+    if (self.config.dpb_service and self.config.dpb_service.service_type in [
+        dpb_service.UNMANAGED_DPB_SVC_YARN_CLUSTER,
+        dpb_service.UNMANAGED_SPARK_CLUSTER]):
       self.dpb_service.vms['master_group'] = self.vm_groups['master_group']
       if self.config.dpb_service.worker_count:
         self.dpb_service.vms['worker_group'] = self.vm_groups['worker_group']
@@ -555,12 +569,12 @@ class BenchmarkSpec(object):
     self.spark_service = spark_service_class(spark_spec)
     # If this is Pkb managed, the benchmark spec needs to adopt vms.
     if service_type == spark_service.PKB_MANAGED:
-      for name, spec in [('master_group', spark_spec.master_group),
-                         ('worker_group', spark_spec.worker_group)]:
+      for name, group_spec in [('master_group', spark_spec.master_group),
+                               ('worker_group', spark_spec.worker_group)]:
         if name in self.vms_to_boot:
           raise Exception('Cannot have a vm group {0} with a {1} spark '
                           'service'.format(name, spark_service.PKB_MANAGED))
-        self.vms_to_boot[name] = spec
+        self.vms_to_boot[name] = group_spec
 
   def ConstructVPNService(self):
     """Create the VPNService object."""
@@ -574,6 +588,7 @@ class BenchmarkSpec(object):
 
   def Provision(self):
     """Prepares the VMs and networks necessary for the benchmark to run."""
+    should_restore = hasattr(self, 'restore_spec') and self.restore_spec
     # Create capacity reservations if the cloud supports it. Note that the
     # capacity reservation class may update the VMs themselves. This is true
     # on AWS, because the VM needs to be aware of the capacity reservation id
@@ -658,9 +673,9 @@ class BenchmarkSpec(object):
       self.relational_db.SetVms(self.vm_groups)
       self.relational_db.Create()
     if self.non_relational_db:
-      self.non_relational_db.Create()
+      self.non_relational_db.Create(restore=should_restore)
     if self.spanner:
-      self.spanner.Create()
+      self.spanner.Create(restore=should_restore)
     if self.tpus:
       vm_util.RunThreaded(lambda tpu: tpu.Create(), self.tpus)
     if self.edw_service:
@@ -679,6 +694,8 @@ class BenchmarkSpec(object):
     if self.deleted:
       return
 
+    should_freeze = hasattr(self, 'freeze_path') and self.freeze_path
+
     if self.container_registry:
       self.container_registry.Delete()
     if self.spark_service:
@@ -688,9 +705,9 @@ class BenchmarkSpec(object):
     if hasattr(self, 'relational_db') and self.relational_db:
       self.relational_db.Delete()
     if hasattr(self, 'non_relational_db') and self.non_relational_db:
-      self.non_relational_db.Delete()
+      self.non_relational_db.Delete(freeze=should_freeze)
     if hasattr(self, 'spanner') and self.spanner:
-      self.spanner.Delete()
+      self.spanner.Delete(freeze=should_freeze)
     if self.tpus:
       vm_util.RunThreaded(lambda tpu: tpu.Delete(), self.tpus)
     if self.edw_service:
@@ -885,10 +902,24 @@ class BenchmarkSpec(object):
     """Returns the filename for the pickled BenchmarkSpec."""
     return os.path.join(vm_util.GetTempDir(), uid)
 
-  def Pickle(self):
+  def Pickle(self, filename=None):
     """Pickles the spec so that it can be unpickled on a subsequent run."""
-    with open(self._GetPickleFilename(self.uid), 'wb') as pickle_file:
+    with open(filename or self._GetPickleFilename(self.uid),
+              'wb') as pickle_file:
       pickle.dump(self, pickle_file, 2)
+
+  def Freeze(self):
+    """Pickles the spec to a destination, defaulting to tempdir if not found."""
+    if not self.freeze_path:
+      return
+    logging.info('Freezing benchmark_spec to %s', self.freeze_path)
+    try:
+      self.Pickle(self.freeze_path)
+    except FileNotFoundError:
+      default_path = f'{vm_util.GetTempDir()}/restore_spec.pickle'
+      logging.exception('Could not find file path %s, defaulting freeze to %s.',
+                        self.freeze_path, default_path)
+      self.Pickle(default_path)
 
   @classmethod
   def GetBenchmarkSpec(cls, benchmark_module, config, uid):
@@ -908,14 +939,14 @@ class BenchmarkSpec(object):
 
     try:
       with open(cls._GetPickleFilename(uid), 'rb') as pickle_file:
-        spec = pickle.load(pickle_file)
+        bm_spec = pickle.load(pickle_file)
     except Exception as e:  # pylint: disable=broad-except
       logging.error('Unable to unpickle spec file for benchmark %s.',
                     benchmark_module.BENCHMARK_NAME)
       raise e
     # Always let the spec be deleted after being unpickled so that
     # it's possible to run cleanup even if cleanup has already run.
-    spec.deleted = False
-    spec.status = benchmark_status.SKIPPED
-    context.SetThreadBenchmarkSpec(spec)
-    return spec
+    bm_spec.deleted = False
+    bm_spec.status = benchmark_status.SKIPPED
+    context.SetThreadBenchmarkSpec(bm_spec)
+    return bm_spec
