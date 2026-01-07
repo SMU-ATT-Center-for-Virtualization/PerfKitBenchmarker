@@ -157,6 +157,12 @@ _HISTOGRAM_PERCENTILES = flags.DEFINE_multi_float(
     'p10, p50, p90, p99, p99.9, p99.99, and p99.999.',
 )
 
+flags.DEFINE_integer(
+    'netperf_tcp_rr_request_size',
+    1,
+    'Send size to use for TCP_RR tests (netperf -r flag)',
+)
+
 FLAGS = flags.FLAGS
 
 BENCHMARK_NAME = 'netperf'
@@ -527,6 +533,10 @@ def RunNetperf(vm, benchmark_name, server_ips, num_streams, client_ips):
         '-P ,{data_port} '
         f'-o {OUTPUT_SELECTOR}'
     )
+
+    if direction == 'RR':
+      netperf_cmd += f' -r {FLAGS.netperf_tcp_rr_request_size},{FLAGS.netperf_tcp_rr_request_size}'
+      metadata['netperf_tcp_rr_request_size'] = FLAGS.netperf_tcp_rr_request_size
 
     if direction == 'STREAM':
       if protocol == 'UDP':

@@ -596,7 +596,7 @@ def RunNetperf(vm, benchmark_name, server_ips, num_streams, client_ips):
             latency_histogram = collections.Counter()
             for histogram in latency_histograms:
                 latency_histogram.update(histogram)
-            hist_metadata = {"histogram": json_dumps(latency_histogram)}
+            hist_metadata = {"histogram": json.dumps(latency_histogram)}
             hist_metadata.update(metadata)
             samples.append(sample.Sample(
                 f"{benchmark_name}_Latency_Histogram", 0, "us", hist_metadata,
@@ -622,7 +622,7 @@ def Run(benchmark_spec):
 
     results = queue.Queue()
     vms_to_free = queue.Queue()
-    procs = [None for i in range(16)] # TODO: parameterize num of procs for parallel runs
+    procs = [None for i in range(32)] # TODO: parameterize num of procs for parallel runs
 
     while (len(s_r_pairs) > 0):
         for ind in range(len(procs)):
