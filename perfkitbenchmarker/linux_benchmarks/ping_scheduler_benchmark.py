@@ -67,10 +67,21 @@ def Prepare(benchmark_spec):
         for vm in benchmark_spec.vms:
             vm.AllowIcmp()
 
+'''
+    metaregions: (northamerica, us, southamerica, europe, africa, me, asia, australia)
+    metaregion_rules : list of tuples => (metaregion_a, metaregion_b, max_tests, current_tests)
+'''
 def Run(benchmark_spec):
     # list of sender-receiver pairs which have not been attempted yet 
     s_r_pairs = list(itertools.combinations(benchmark_spec.vm_groups.keys(), 2))
     logging.info(f'Ping Run Start - s_r_pairs: {s_r_pairs}')
+
+    all_mr = ['africa', 'australia', 'asia', 'europe', 'me', 'northamerica', 'southamerica', 'us']
+    mr_pairs = list(itertools.combinations(all_mr, 2))
+    mr_restrictions = [ [s, r, 2, 0] for (s, r) in mr_pairs]
+    for mr in all_mr:
+        mr_restrictions.append( [mr, mr, 4, 0] )
+    logging.info(f'Metaregion Restrictions Rules: {mr_restrictions}')
 
     # dict to keep track of which vms are currently running a benchmark
     # False => not busy, True => busy
@@ -82,7 +93,7 @@ def Run(benchmark_spec):
 
     results = queue.Queue()
     vms_to_free = queue.Queue()
-    procs = [None for i in range(8)] #TODO: parameterize num of procs for parallel runs
+    procs = [None for i in range(16)] #TODO: parameterize num of procs for parallel runs
 
     while (len(s_r_pairs) > 0):
         for ind in range(len(procs)):
@@ -92,21 +103,30 @@ def Run(benchmark_spec):
                 busy_vms[vm_pair[0]][vm_pair[1]] = False
                 busy_vms[vm_pair[2]][vm_pair[3]] = False
                 procs[ind] = None
+
+                s_vm = benchmark_spec.vm_groups[vm_pair[0]][vm_pair[1]]
+                r_vm = benchmark_spec.vm_groups[vm_pair[2]][vm_pair[3]]
+                _update_metaregion_rules(s_vm, r_vm, -1, mr_restrictions)
+
                 logging.info(f'Cleanup: {vm_pair}')
                 logging.info(f'Remaining s_r_pairs: {s_r_pairs}')
                 logging.info(f'Procs: {procs}')
+                logging.info(f'Updated Metaregion Rules: {mr_restrictions}')
 
             if procs[ind] is None: #start new runs
                 s_r = _GetRun(s_r_pairs, busy_vms)
-                if s_r is not None:
+                if s_r is not None and _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
                     (s_i, r_i) = _PrepareRun(s_r, s_r_pairs, busy_vms)
                     s_vm = benchmark_spec.vm_groups[s_r[0]][s_i]
                     r_vm = benchmark_spec.vm_groups[s_r[1]][r_i]
+
+                    _update_metaregion_rules(s_vm, r_vm, 1, mr_restrictions)
 
                     vm_pair = (s_r[0], s_i, s_r[1], r_i)
                     procs[ind] = threading.Thread(target = _RunPing, args=(results, vms_to_free, s_vm, r_vm, vm_pair))
                     procs[ind].start()
                     logging.info(f'Starting: {vm_pair}')
+                    logging.info(f'Updated Metaregion Rules: {mr_restrictions}')
 
         time.sleep(5)
 
@@ -120,6 +140,24 @@ def Run(benchmark_spec):
         flattened_results.extend(subl)
 
     return flattened_results
+
+def _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
+    mr_0 = benchmark_spec.vm_groups[s_r[0]][0].zone.split('-')[0]
+    mr_1 = benchmark_spec.vm_groups[s_r[1]][0].zone.split('-')[0]
+    for rule in mr_restrictions:
+        if (mr_0 == rule[0] and mr_1 == rule[1]) or (mr_0 == rule[1] and mr_1 == rule[0]):
+            return True if rule[3] < rule[2] else False
+    return True
+
+def _update_metaregion_rules(s_vm, r_vm, val, mr_restrictions):
+    mr_0 = s_vm.zone.split('-')[0]
+    mr_1 = r_vm.zone.split('-')[0]
+    for ind in range(len(mr_restrictions)):
+        rule = mr_restrictions[ind]
+        if (mr_0 == rule[0] and mr_1 == rule[1]) or (mr_0 == rule[1] and mr_1 == rule[0]):
+            mr_restrictions[ind][3] += val
+            return True
+    return False
 
 # get a s_r pair to run, basic greedy strategy
 def _GetRun(s_r_pairs, busy_vms):
