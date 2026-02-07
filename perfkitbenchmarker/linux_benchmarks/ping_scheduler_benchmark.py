@@ -114,8 +114,26 @@ def Run(benchmark_spec):
                 logging.info(f'Updated Metaregion Rules: {mr_restrictions}')
 
             if procs[ind] is None: #start new runs
+                s_r_list = _GetRun(s_r_pairs, busy_vms)
+
+                for s_r in s_r_list:
+                    if _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
+                        (s_i, r_i) = _PrepareRun(s_r, s_r_pairs, busy_vms)
+                        s_vm = benchmark_spec.vm_groups[s_r[0]][s_i]
+                        r_vm = benchmark_spec.vm_groups[s_r[1]][r_i]
+
+                        _update_metaregion_rules(s_vm, r_vm, 1, mr_restrictions)
+
+                        vm_pair = (s_r[0], s_i, s_r[1], r_i)
+                        procs[ind] = threading.Thread(target = _RunPing, args=(results, vms_to_free, s_vm, r_vm, vm_pair))
+                        procs[ind].start()
+                        logging.info(f"Staring: {vm_pair}")
+                        logging.info(f"Updated Metaregion Rules: {mr_restrictions}")
+                        break
+
+                '''
                 s_r = _GetRun(s_r_pairs, busy_vms)
-                if s_r is not None and _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
+                if s_r is not None: #and _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
                     (s_i, r_i) = _PrepareRun(s_r, s_r_pairs, busy_vms)
                     s_vm = benchmark_spec.vm_groups[s_r[0]][s_i]
                     r_vm = benchmark_spec.vm_groups[s_r[1]][r_i]
@@ -127,6 +145,7 @@ def Run(benchmark_spec):
                     procs[ind].start()
                     logging.info(f'Starting: {vm_pair}')
                     logging.info(f'Updated Metaregion Rules: {mr_restrictions}')
+                '''
 
         time.sleep(5)
 
@@ -159,12 +178,22 @@ def _update_metaregion_rules(s_vm, r_vm, val, mr_restrictions):
             return True
     return False
 
+# get list of s_r_pairs to run - TODO: refactor later
+def _GetRun(s_r_pairs, busy_vms):
+    res = []
+    for (s, r) in s_r_pairs:
+        if False in busy_vms[s] and False in busy_vms[r]:
+            res.append( (s, r) )
+    return res
+
+'''
 # get a s_r pair to run, basic greedy strategy
 def _GetRun(s_r_pairs, busy_vms):
     for (s, r) in s_r_pairs:
         if False in busy_vms[s] and False in busy_vms[r]:
             return (s, r)
     return None
+'''
 
 # given s_r, remove from s_r_pairs todo-list and mark corresponding vms as busy
 def _PrepareRun(s_r, s_r_pairs, busy_vms):
