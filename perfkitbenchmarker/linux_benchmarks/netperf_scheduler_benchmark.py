@@ -702,7 +702,7 @@ def _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
 def _update_metaregion_rules(s_vm, r_vm, val, mr_restrictions):
     mr_0 = s_vm.zone.split('-')[0]
     mr_1 = r_vm.zone.split('-')[0]
-    for in in range(len(mr_restrictions)):
+    for ind in range(len(mr_restrictions)):
         rule = mr_restrictions[ind]
         if (mr_0 == rule[0] and mr_1 == rule[1]) or (mr_0 == rule[1] and mr_1 == rule[0]):
             mr_restrictions[ind][3] += val
