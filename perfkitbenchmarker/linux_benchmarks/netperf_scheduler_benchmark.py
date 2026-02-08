@@ -613,6 +613,13 @@ def Run(benchmark_spec):
     s_r_pairs = list(itertools.combinations(benchmark_spec.vm_groups.keys(), 2))
     logging.info(f"Netperf Run Start - s_r_pairs: {s_r_pairs}")
 
+    all_mr = ['africa', 'australia', 'asia', 'europe', 'me', 'northamerica', 'southamerica', 'us']
+    mr_pairs = list( itertools.combinations(all_mr, 2) )
+    mr_restrictions = [ [s, r, 2, 0] for (s, r) in mr_pairs]
+    for mr in all_mr:
+        mr_restrictions.append( [mr, mr, 4, 0] )
+    logging.info(f"Metaregion Restrictions Rules: {mr_restrictions}")
+
     # False => not busy, True => busy
     # True/False mirror of benchmark_spec.vm_groups[group_name] => vms(list)
     busy_vms = dict.fromkeys(benchmark_spec.vm_groups.keys(), [])
@@ -632,8 +639,33 @@ def Run(benchmark_spec):
                 busy_vms[vm_pair[0]][vm_pair[1]] = False
                 busy_vms[vm_pair[2]][vm_pair[3]] = False
                 procs[ind] = None
-                logging.info(f"Cleanup: {vm_pair}")
 
+                s_vm = benchmark_spec.vm_groups[vm_pair[0]][vm_pair[1]]
+                r_vm = benchmark_spec.vm_groups[vm_pair[2]][vm_pair[3]]
+                _update_metaregion_rules(s_vm, r_vm, -1, mr_restrictions)
+
+                logging.info(f"Cleanup: {vm_pair}")
+                logging.info(f"Updated Metaregion Rules: {mr_restrictions}")
+
+            if procs[ind] is None:
+                s_r_list = _GetRun(s_r_pairs, busy_vms)
+
+                for s_r in s_r_list:
+                    if _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
+                        (s_i, r_i) = _PrepareRun(s_r, s_r_pairs, busy_vms)
+                        s_vm = benchmark_spec.vm_groups[s_r[0]][s_i]
+                        r_vm = benchmark_spec.vm_groups[s_r[1]][r_i]
+
+                        _update_metaregion_rules(s_vm, r_vm, 1, mr_restrictions)
+
+                        vm_pair = (s_r[0], s_i, s_r[1], r_i)
+                        procs[ind] = threading.Thread(target = RunClientServerVMs, args = (s_vm, r_vm, results, vms_to_free, vm_pair))
+                        procs[ind].start()
+                        logging.info(f"Starting: {vm_pair}")
+                        logging.info(f"Updated Metaregion Rules: {mr_restrictions}")
+                        break
+
+            '''
             if procs[ind] is None: # start new runs
                 s_r = _GetRun(s_r_pairs, busy_vms)
                 if s_r is not None:
@@ -645,6 +677,7 @@ def Run(benchmark_spec):
                     procs[ind] = threading.Thread(target = RunClientServerVMs, args=(s_vm, r_vm, results, vms_to_free, vm_pair))
                     procs[ind].start()
                     logging.info(f"Starting: {vm_pair}")
+            '''
         time.sleep(5)
 
     logging.info(f"Exiting main loop, wrapping up all ongoing procs")
@@ -658,13 +691,31 @@ def Run(benchmark_spec):
 
     return flattened_results
 
+def _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
+    mr_0 = benchmark_spec.vm_groups[s_r[0]][0].zone.split('-')[0]
+    mr_1 = benchmark_spec.vm_groups[s_r[1]][0].zone.split('-')[0]
+    for rule in mr_restrictions:
+        if (mr_0 == rule[0] and mr_1 == rule[1]) or (mr_0 == rule[1] and mr_1 == rule[0]):
+            return True if rule[3] < rule[2] else False
+    return True
+
+def _update_metaregion_rules(s_vm, r_vm, val, mr_restrictions):
+    mr_0 = s_vm.zone.split('-')[0]
+    mr_1 = r_vm.zone.split('-')[0]
+    for in in range(len(mr_restrictions)):
+        rule = mr_restrictions[ind]
+        if (mr_0 == rule[0] and mr_1 == rule[1]) or (mr_0 == rule[1] and mr_1 == rule[0]):
+            mr_restrictions[ind][3] += val
+            return True
+    return False
 
 # get a s_r_pair to run, basic greedy strategy
 def _GetRun(s_r_pairs, busy_vms):
+    res = []
     for (s, r) in s_r_pairs:
         if False in busy_vms[s] and False in busy_vms[r]:
-            return (s, r)
-    return None
+            res.append( (s, r) )
+    return res
 
 # given s_r, remove from s_r_pairs todo list and mark corresponding vms as busy
 def _PrepareRun(s_r, s_r_pairs, busy_vms):

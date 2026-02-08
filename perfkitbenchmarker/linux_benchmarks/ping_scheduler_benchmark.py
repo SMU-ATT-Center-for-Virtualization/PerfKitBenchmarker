@@ -131,22 +131,6 @@ def Run(benchmark_spec):
                         logging.info(f"Updated Metaregion Rules: {mr_restrictions}")
                         break
 
-                '''
-                s_r = _GetRun(s_r_pairs, busy_vms)
-                if s_r is not None: #and _check_mr_violation(benchmark_spec, s_r, mr_restrictions):
-                    (s_i, r_i) = _PrepareRun(s_r, s_r_pairs, busy_vms)
-                    s_vm = benchmark_spec.vm_groups[s_r[0]][s_i]
-                    r_vm = benchmark_spec.vm_groups[s_r[1]][r_i]
-
-                    _update_metaregion_rules(s_vm, r_vm, 1, mr_restrictions)
-
-                    vm_pair = (s_r[0], s_i, s_r[1], r_i)
-                    procs[ind] = threading.Thread(target = _RunPing, args=(results, vms_to_free, s_vm, r_vm, vm_pair))
-                    procs[ind].start()
-                    logging.info(f'Starting: {vm_pair}')
-                    logging.info(f'Updated Metaregion Rules: {mr_restrictions}')
-                '''
-
         time.sleep(5)
 
     logging.info(f'Exited loop, wrapping up all procs')
