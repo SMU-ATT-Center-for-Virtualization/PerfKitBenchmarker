@@ -611,6 +611,8 @@ def RunNetperf(vm, benchmark_name, server_ips, num_streams, client_ips):
 
 def Run(benchmark_spec):
     s_r_pairs = list(itertools.combinations(benchmark_spec.vm_groups.keys(), 2))
+    s_r_pairs_rev = [(r, s) for (s, r) in s_r_pairs]
+    s_r_pairs += s_r_pairs_rev
     logging.info(f"Netperf Run Start - s_r_pairs: {s_r_pairs}")
 
     all_mr = ['africa', 'australia', 'asia', 'europe', 'me', 'northamerica', 'southamerica', 'us']
@@ -665,19 +667,6 @@ def Run(benchmark_spec):
                         logging.info(f"Updated Metaregion Rules: {mr_restrictions}")
                         break
 
-            '''
-            if procs[ind] is None: # start new runs
-                s_r = _GetRun(s_r_pairs, busy_vms)
-                if s_r is not None:
-                    (s_i, r_i) = _PrepareRun(s_r, s_r_pairs, busy_vms)
-                    s_vm = benchmark_spec.vm_groups[s_r[0]][s_i]
-                    r_vm = benchmark_spec.vm_groups[s_r[1]][r_i]
-
-                    vm_pair = (s_r[0], s_i, s_r[1], r_i)
-                    procs[ind] = threading.Thread(target = RunClientServerVMs, args=(s_vm, r_vm, results, vms_to_free, vm_pair))
-                    procs[ind].start()
-                    logging.info(f"Starting: {vm_pair}")
-            '''
         time.sleep(5)
 
     logging.info(f"Exiting main loop, wrapping up all ongoing procs")
