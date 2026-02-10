@@ -74,6 +74,8 @@ def Prepare(benchmark_spec):
 def Run(benchmark_spec):
     # list of sender-receiver pairs which have not been attempted yet 
     s_r_pairs = list(itertools.combinations(benchmark_spec.vm_groups.keys(), 2))
+    s_r_pairs_rev = [(r, s) for (s, r) in s_r_pairs]
+    s_r_pairs += s_r_pairs_rev
     logging.info(f'Ping Run Start - s_r_pairs: {s_r_pairs}')
 
     all_mr = ['africa', 'australia', 'asia', 'europe', 'me', 'northamerica', 'southamerica', 'us']
