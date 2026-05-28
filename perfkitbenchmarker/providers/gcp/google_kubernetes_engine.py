@@ -112,6 +112,13 @@ class GoogleArtifactRegistry(container_registry.BaseContainerRegistry):
     )
     build_cmd.Issue(timeout=None)
 
+    # NOTE: PKB is able to build the image, but is not able to read from the ArtifactRegistry repo later
+    # when starting GKE workloads.
+
+    # manually allow read access to the created repo for a given service account
+    cmd = util.GcloudCommand(self, "artifacts", "repositories", "add-iam-policy-binding", self.name, f"--location={self.region}",
+                             f"--member=serviceAccount:{FLAGS.gcp_service_account}", '--role=roles/artifactregistry.reader')
+    cmd.Issue(timeout=None)
 
 class BaseGkeCluster(kubernetes_cluster.KubernetesCluster):
   """Base class for regular & Autopilot GKE clusters."""
@@ -420,6 +427,11 @@ class GkeCluster(BaseGkeCluster):
     if self.enable_aam:
       cmd.args.append('--auto-monitoring-scope=ALL')
 
+    # following example command at: https://docs.cloud.google.com/kubernetes-engine/docs/how-to/dataplane-v2#gcloud
+    if gcp_flags.GKE_ENABLE_DATAPLANE_V2.value:
+      cmd.args.append('--enable-dataplane-v2')
+      cmd.args.append('--enable-ip-alias')
+
     self._RunClusterCreateCommand(cmd)
     self._GetKubeconfig()
     self._CreateCustomComputeClass(self.default_nodepool)
@@ -435,6 +447,8 @@ class GkeCluster(BaseGkeCluster):
           nodepool,
           cmd,
       )
+      if gcp_flags.GKE_NODE_GROUP.value:
+        cmd.flags['node-group'] = gcp_flags.GKE_NODE_GROUP.value
       self._IssueResourceCreationCommand(cmd)
       self._CreateCustomComputeClass(nodepool)
 

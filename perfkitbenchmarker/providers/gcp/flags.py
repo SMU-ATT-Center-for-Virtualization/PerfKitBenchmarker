@@ -580,6 +580,16 @@ GKE_CLUSTER_IPV4_CIDR_SIZE = flags.DEFINE_integer(
     ' the size derived from max_vm_count. Use when the cluster will scale'
     ' beyond the default node pool (e.g. kubernetes_node_scale with 5k nodes).',
 )
+GKE_ENABLE_DATAPLANE_V2 = flags.DEFINE_boolean(
+    'gke_enable_dataplane_v2',
+    False,
+    'Whether to create GKE clusters with GKE Dataplane V2'
+)
+GKE_NODE_GROUP = flags.DEFINE_string(
+    'gke_node_group',
+    '',
+    'The name of an existing sole-tenant node group to create GKE node pools in'
+)
 GCE_PERFORMANCE_MONITORING_UNIT = flags.DEFINE_enum(
     'gce_performance_monitoring_unit',
     None,
