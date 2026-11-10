@@ -141,6 +141,12 @@ FLAG_NETPERF_PERF_RECORD = flags.DEFINE_boolean(
     ' change the result.',
 )
 
+NETPERF_CONG_CONTROL = flags.DEFINE_string(
+    'netperf_cong_control',
+    'cubic',
+    'Congestion control algorithm to request netperf to run with'
+)
+
 TCP_RR = 'TCP_RR'
 TCP_CRR = 'TCP_CRR'
 TCP_STREAM = 'TCP_STREAM'
@@ -540,6 +546,7 @@ def RunNetperf(
       'sending_thread_count': num_streams,
       'max_iter': FLAGS.netperf_max_iter or 1,
       'netperf_warmup_test_length': FLAGS.netperf_warmup_test_length,
+      'netperf_cong_control': FLAGS.netperf_cong_control,
   }
 
   remote_cmd_list = []
@@ -576,7 +583,7 @@ def RunNetperf(
         raise ValueError(
             f'Unsupported protocol for netperf stream benchmark: {protocol}'
         )
-      netperf_cmd += f' -m {send_size} -M {send_size} '
+      netperf_cmd += f' -m {send_size} -M {send_size} -K {FLAGS.netperf_cong_control},{FLAGS.netperf_cong_control}'
       metadata['netperf_send_size_in_bytes'] = send_size
 
     if FLAGS.netperf_thinktime != 0:
