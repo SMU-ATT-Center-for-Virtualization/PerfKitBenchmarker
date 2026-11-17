@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.7",
+  "aiperf_version": "0.13.0",
+  "benchmark_id": "test-benchmark-id",
+  "start_time": "2026-11-10T12:00:00Z",
+  "end_time": "2026-11-10T12:01:00Z",
+  "was_cancelled": false,
+  "input_config": {
+    "model": "gemma-4-E2B-it"
+  },
+  "run_info": {
+    "benchmark_id": "test-benchmark-id",
+    "random_seed": 42
+  },
+  "time_to_first_token": {
+    "unit": "ms",
+    "avg": 100.0,
+    "min": 80.0,
+    "max": 150.0,
+    "p1": 81.0,
+    "p5": 85.0,
+    "p10": 88.0,
+    "p25": 92.0,
+    "p50": 95.0,
+    "p75": 105.0,
+    "p90": 130.0,
+    "p95": 140.0,
+    "p99": 149.0,
+    "std": 10.0,
+    "count": 100,
+    "sum": 10000.0
+  },
+  "inter_token_latency": {
+    "unit": "ms",
+    "avg": 10.0,
+    "min": 8.0,
+    "max": 12.0,
+    "p50": 10.0,
+    "p90": 11.0,
+    "p99": 11.9,
+    "std": 1.0,
+    "count": 100,
+    "sum": 1000.0
+  },
+  "request_latency": {
+    "unit": "ms",
+    "avg": 1000.0,
+    "min": 900.0,
+    "max": 1100.0,
+    "p50": 1000.0,
+    "p90": 1050.0,
+    "p99": 1099.0,
+    "std": 50.0,
+    "count": 100,
+    "sum": 100000.0
+  },
+  "output_token_throughput": {
+    "unit": "tokens/sec",
+    "avg": 50.0
+  },
+  "request_throughput": {
+    "unit": "requests/sec",
+    "avg": 10.5
+  },
+  "request_count": {
+    "unit": "requests",
+    "avg": 100.0
+  },
+  "input_sequence_length": {
+    "unit": "tokens",
+    "avg": 512.0,
+    "min": 512.0,
+    "max": 512.0,
+    "p50": 512.0,
+    "p90": 512.0,
+    "p99": 512.0,
+    "std": 0.0,
+    "count": 100,
+    "sum": 51200.0
+  },
+  "output_sequence_length": {
+    "unit": "tokens",
+    "avg": 128.0,
+    "min": 128.0,
+    "max": 128.0,
+    "p50": 128.0,
+    "p90": 128.0,
+    "p99": 128.0,
+    "std": 0.0,
+    "count": 100,
+    "sum": 12800.0
+  },
+  "error_summary": []
+}
