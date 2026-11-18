@@ -839,7 +839,9 @@ class GceVirtualMachine(virtual_machine.BaseVirtualMachine):
       cmd.flags['no-restart-on-failure'] = True
     self.metadata['automatic_restart'] = self.automatic_restart
     if self.host:
-      cmd.flags['node-group'] = self.host.name
+      cmd.flags['node-group'] = (
+          gcp_flags.GCE_NODE_GROUP.value or self.host.name
+      )
     if self.gce_shielded_secure_boot:
       cmd.flags['shielded-secure-boot'] = True
 

@@ -109,6 +109,30 @@ class GoogleArtifactRegistry(container_registry.BaseContainerRegistry):
         '--repository-format=docker',
         f'--location={self.region}',
     ).Issue()
+    # GKE nodes pull images using their node service account. Grant it read
+    # access to the newly-created repository. Mirror the service-account
+    # selection used when creating the GKE cluster.
+    service_account = gcp_flags.GCP_SERVICE_ACCOUNT.value
+    if not service_account:
+      user = util.GetDefaultUser()
+      if re.match(SERVICE_ACCOUNT_PATTERN, user):
+        service_account = user
+      else:
+        service_account = util.GetDefaultComputeServiceAccount(self.project)
+    logging.info(
+        'Granting Artifact Registry reader to service account %s',
+        service_account,
+    )
+    util.GcloudCommand(
+        self,
+        'artifacts',
+        'repositories',
+        'add-iam-policy-binding',
+        self.name,
+        f'--location={self.region}',
+        f'--member=serviceAccount:{service_account}',
+        '--role=roles/artifactregistry.reader',
+    ).Issue()
 
   def _Delete(self) -> None:
     util.GcloudCommand(
@@ -717,6 +741,10 @@ class GkeCluster(BaseGkeCluster):
     """Modifies cmd to include node specific command arguments."""
     # Apply labels to all nodepools.
     cmd.flags['labels'] = util.MakeFormattedDefaultTags()
+    # Nodes need cloud-platform scope to pull images from Artifact Registry.
+    # IAM roles on the node service account still control actual access.
+    if 'scopes' not in cmd.flags:
+      cmd.flags['scopes'] = 'cloud-platform'
     # Allow a long timeout due to the many minutes it can take to provision a
     # large GPU-accelerated GKE cluster.
     # Parameter is not documented well but is available in CLI.
@@ -785,6 +813,8 @@ class GkeCluster(BaseGkeCluster):
         cmd.flags['local-ssd-count'] = nodepool_config.max_local_disks
 
     cmd.flags['num-nodes'] = nodepool_config.num_nodes
+    if nodepool_config.node_group:
+      cmd.flags['node-group'] = nodepool_config.node_group
     if nodepool_config.max_pods:
       cmd.flags['max-pods-per-node'] = nodepool_config.max_pods
     # zone may be split a comma separated list. For regional clusters, zone

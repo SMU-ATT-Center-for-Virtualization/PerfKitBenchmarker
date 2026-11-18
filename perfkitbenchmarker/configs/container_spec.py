@@ -227,6 +227,8 @@ class NodepoolSpec(spec.BaseSpec):
   Attributes:
     vm_spec: The vm spec which defines the nodepool.
     max_pods: Optional maximum number of pods per node in the nodepool.
+    node_group: Optional existing GCE sole-tenant node group to create the
+      nodepool's nodes in. Only supported by the GCP/GKE provider.
   """
 
   vm_spec: virtual_machine_spec.BaseVmSpec
@@ -243,6 +245,7 @@ class NodepoolSpec(spec.BaseSpec):
     self.min_vm_count: int | None
     self.max_vm_count: int | None
     self.max_pods: int | None
+    self.node_group: str | None
     self.vm_spec: virtual_machine_spec.BaseVmSpec
     self.machine_families: list[str] | None
     self.sandbox_config: SandboxSpec | None
@@ -281,6 +284,10 @@ class NodepoolSpec(spec.BaseSpec):
         'max_pods': (
             option_decoders.IntDecoder,
             {'default': None, 'none_ok': True, 'min': 1},
+        ),
+        'node_group': (
+            option_decoders.StringDecoder,
+            {'default': None, 'none_ok': True},
         ),
         'vm_spec': (spec.PerCloudConfigDecoder, {}),
         'sandbox_config': (_SandboxDecoder, {'default': None}),

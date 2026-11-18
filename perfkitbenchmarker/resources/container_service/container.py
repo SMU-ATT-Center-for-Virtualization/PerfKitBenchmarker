@@ -151,6 +151,8 @@ class BaseNodePoolConfig:
       non-num_nodes value, the nodepool uses auLike above.
     max_nodes: int. The maximum number of nodes in the node pool. Like above.
     max_pods: int | None. Optional maximum number of pods per node.
+    node_group: str | None. Optional existing GCE sole-tenant node group to
+      create the node pool's nodes in. Only used by the GCP/GKE provider.
     disk_type: str. The type of disk for the nodes in the node pool.
     disk_size: int. The size of the disk for the nodes in the node pool in GB.
     gpu_type: str. The type of GPU for the nodes in the node pool.
@@ -187,6 +189,7 @@ class BaseNodePoolConfig:
     self.min_nodes: int = 1
     self.max_nodes: int = 1
     self.max_pods: int | None = None
+    self.node_group: str | None = None
     self.disk_type: str | None = vm_spec.boot_disk_type
     self.disk_size: int = vm_spec.boot_disk_size  # pyrefly: ignore[bad-assignment]
     self.gpu_type: str | None = vm_spec.gpu_type

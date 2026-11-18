@@ -145,6 +145,7 @@ class BaseContainerCluster(resource.BaseResource):
         if nodepool_spec.max_pods is not None
         else self.default_nodepool.max_pods
     )
+    nodepool_config.node_group = nodepool_spec.node_group
     self.InitializeNodePoolForCloud(vm_config, nodepool_config)
     return nodepool_config
 
