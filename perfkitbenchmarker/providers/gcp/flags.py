@@ -604,6 +604,12 @@ GKE_ADDONS = flags.DEFINE_string(
     '',
     'The addons to enable or disable.',
 )
+GKE_ENABLE_DATAPLANE_V2 = flags.DEFINE_boolean(
+    'gke_enable_dataplane_v2',
+    False,
+    'Whether to enable GKE Dataplane V2 (--enable-dataplane-v2) when creating'
+    ' the cluster.',
+)
 GKE_AUTOSCALING_PROFILE = flags.DEFINE_enum(
     'gke_autoscaling_profile',
     None,

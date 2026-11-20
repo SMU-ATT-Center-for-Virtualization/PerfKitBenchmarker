@@ -159,6 +159,7 @@ class BaseNodePoolConfig:
     swap_config: Optional SwapConfigSpec for the node pool.
     gke_swap_config: Optional cloud-specific swap config instance.
     network: Optional cloud-specific network instance for the node pool.
+    egress_bandwidth_tier: Optional egress bandwidth tier for the node pool.
   """
 
   def __init__(
@@ -194,6 +195,7 @@ class BaseNodePoolConfig:
     # pylint: disable=g-missing-from-attributes
     self.sandbox_config: container_spec_lib.SandboxSpec | None = None
     self.swap_config: swap_config_spec.SwapConfigSpec | None = None
+    self.egress_bandwidth_tier: str | None = None
     # Defined by GceVmSpec. Used by google_kubernetes_engine.
     self.network: Any | None = None
     self.max_local_disks: int | None

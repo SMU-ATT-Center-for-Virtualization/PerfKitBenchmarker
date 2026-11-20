@@ -227,6 +227,7 @@ class NodepoolSpec(spec.BaseSpec):
   Attributes:
     vm_spec: The vm spec which defines the nodepool.
     max_pods: Optional maximum number of pods per node in the nodepool.
+    egress_bandwidth_tier: Optional egress bandwidth tier for the nodepool.
   """
 
   vm_spec: virtual_machine_spec.BaseVmSpec
@@ -246,6 +247,7 @@ class NodepoolSpec(spec.BaseSpec):
     self.vm_spec: virtual_machine_spec.BaseVmSpec
     self.machine_families: list[str] | None
     self.sandbox_config: SandboxSpec | None
+    self.egress_bandwidth_tier: str | None
     # For GCP TPUs:
     self.tpu_topology: str | None
     self.tpu_count: int | None
@@ -284,6 +286,13 @@ class NodepoolSpec(spec.BaseSpec):
         ),
         'vm_spec': (spec.PerCloudConfigDecoder, {}),
         'sandbox_config': (_SandboxDecoder, {'default': None}),
+        'egress_bandwidth_tier': (
+            option_decoders.EnumDecoder,
+            {
+                'default': None,
+                'valid_values': ['TIER_1'],
+            },
+        ),
         'tpu_topology': (option_decoders.StringDecoder, {'default': None}),
         'tpu_count': (option_decoders.IntDecoder, {'default': None}),
         'swap_config': (

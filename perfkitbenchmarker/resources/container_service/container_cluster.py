@@ -131,6 +131,7 @@ class BaseContainerCluster(resource.BaseResource):
     nodepool_config.tpu_topology = nodepool_spec.tpu_topology
     nodepool_config.tpu_count = nodepool_spec.tpu_count
     nodepool_config.swap_config = nodepool_spec.swap_config
+    nodepool_config.egress_bandwidth_tier = nodepool_spec.egress_bandwidth_tier
     nodepool_config.zone = zone  # pyrefly: ignore[bad-assignment]
     nodepool_config.num_nodes = nodepool_spec.vm_count
     if nodepool_spec.min_vm_count is None:
@@ -252,6 +253,10 @@ class BaseContainerCluster(resource.BaseResource):
         })
       if nodepool.max_pods is not None:
         nodepool_metadata['max_pods'] = nodepool.max_pods
+      if nodepool.egress_bandwidth_tier:
+        nodepool_metadata['egress_bandwidth_tier'] = (
+            nodepool.egress_bandwidth_tier
+        )
       nodepools_metadata[name] = nodepool_metadata
 
     metadata = {

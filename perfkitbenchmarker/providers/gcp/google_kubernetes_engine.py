@@ -109,6 +109,30 @@ class GoogleArtifactRegistry(container_registry.BaseContainerRegistry):
         '--repository-format=docker',
         f'--location={self.region}',
     ).Issue()
+    # GKE nodes pull images using their node service account. Grant it read
+    # access to the newly-created repository. Mirror the service-account
+    # selection used when creating the GKE cluster.
+    service_account = gcp_flags.GCP_SERVICE_ACCOUNT.value
+    if not service_account:
+      user = util.GetDefaultUser()
+      if re.match(SERVICE_ACCOUNT_PATTERN, user):
+        service_account = user
+      else:
+        service_account = util.GetDefaultComputeServiceAccount(self.project)
+    logging.info(
+        'Granting Artifact Registry reader to service account %s',
+        service_account,
+    )
+    util.GcloudCommand(
+        self,
+        'artifacts',
+        'repositories',
+        'add-iam-policy-binding',
+        self.name,
+        f'--location={self.region}',
+        f'--member=serviceAccount:{service_account}',
+        '--role=roles/artifactregistry.reader',
+    ).Issue()
 
   def _Delete(self) -> None:
     util.GcloudCommand(
@@ -515,7 +539,7 @@ class GkeCluster(BaseGkeCluster):
       result['gce_local_ssd_count'] = self.default_nodepool.max_local_disks
       result['gce_local_ssd_interface'] = self.default_nodepool.ssd_interface
     result['gke_nccl_fast_socket'] = self.enable_nccl_fast_socket
-    if self.enable_network_policy:
+    if self.enable_network_policy or gcp_flags.GKE_ENABLE_DATAPLANE_V2.value:
       result['gke_enable_dataplane_v2'] = True
     if self.image_type:
       result['image_type'] = self.image_type
@@ -579,12 +603,15 @@ class GkeCluster(BaseGkeCluster):
       cmd.args.append(f'--addons={gcp_flags.GKE_ADDONS.value}')
     if gcp_flags.GKE_ENABLE_WORKLOAD_IDENTITY.value:
       cmd.flags['workload-pool'] = f'{self.project}.svc.id.goog'
-    if self.enable_network_policy:
+    if (
+        gcp_flags.GKE_ENABLE_DATAPLANE_V2.value
+        or self.enable_network_policy
+    ):
       addons = (gcp_flags.GKE_ADDONS.value or '').split(',')
       if 'NetworkPolicy' in addons:
         raise errors.Config.InvalidValue(
-            'enable_network_policy uses Dataplane V2 (--enable-dataplane-v2)'
-            ' and cannot be combined with --gke_addons=NetworkPolicy.'
+            'Dataplane V2 (--enable-dataplane-v2) cannot be combined with'
+            ' --gke_addons=NetworkPolicy.'
         )
       if '--enable-dataplane-v2' not in cmd.args:
         cmd.args.append('--enable-dataplane-v2')
@@ -695,6 +722,10 @@ class GkeCluster(BaseGkeCluster):
       cmd: util.GcloudCommand,
   ):
     """Modifies cmd to include node specific command arguments."""
+    # Nodes need cloud-platform scope to pull images from Artifact Registry.
+    # IAM roles on the node service account still control actual access.
+    if 'scopes' not in cmd.flags:
+      cmd.flags['scopes'] = 'cloud-platform'
     # Apply labels to all nodepools.
     cmd.flags['labels'] = util.MakeFormattedDefaultTags()
     # Allow a long timeout due to the many minutes it can take to provision a
@@ -731,6 +762,12 @@ class GkeCluster(BaseGkeCluster):
       cmd.flags['tags'] = ','.join(gce_tags)
     if nodepool_config.min_cpu_platform:
       cmd.flags['min-cpu-platform'] = nodepool_config.min_cpu_platform
+
+    if nodepool_config.egress_bandwidth_tier:
+      cmd.flags['network-performance-configs'] = (
+          'total-egress-bandwidth-tier='
+          f'{nodepool_config.egress_bandwidth_tier}'
+      )
 
     if gcp_flags.GCE_PROVISIONING_MODEL.value == 'SPOT':
       cmd.args.append('--spot')
